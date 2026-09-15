@@ -21,6 +21,10 @@ import {
   getRentResult,
   applyRentDecision,
   resetRent,
+  getRentSpaceSize,
+  getEquipmentResult,
+  applyEquipmentDecision,
+  resetEquipment,
 } from "@/lib/db";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
@@ -48,11 +52,13 @@ import {
   type NegotiationResult,
   type RentResult,
 } from "@/lib/rent";
+import { getEquipmentOption, SPACE_BUDGET, WORKER_MONTHLY_SALARY, type EquipmentResult } from "@/lib/equipment";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
 const FINANCING_STAGE_ID = 3;
 const LICENSING_STAGE_ID = 4;
 const RENT_STAGE_ID = 5;
+const EQUIPMENT_STAGE_ID = 6;
 
 async function requireUserId(): Promise<string> {
   const { data: session } = await auth.getSession();
@@ -99,6 +105,13 @@ export async function advanceStage() {
     }
   }
 
+  if (current === EQUIPMENT_STAGE_ID) {
+    const result = await getEquipmentResult(userId);
+    if (result === null) {
+      throw new Error("لازم تأكّد نوع الخط وعدد العمال قبل ما تكمّل.");
+    }
+  }
+
   const next = Math.min(current + 1, TOTAL_STAGES);
   await setCurrentStage(userId, next);
   revalidatePath("/game");
@@ -106,8 +119,8 @@ export async function advanceStage() {
 
 /**
  * إعادة البدء — يرجّع currentStage لـ1، وكمان يمسح تقدّم دراسة السوق
- * وقرار التمويل والترخيص والإيجار حتى تكون كل مرحلة جاهزة من الصفر
- * بالجولة الجاية. للتجربة أثناء البناء فقط.
+ * وقرار التمويل والترخيص والإيجار والمعدات حتى تكون كل مرحلة جاهزة من
+ * الصفر بالجولة الجاية. للتجربة أثناء البناء فقط.
  */
 export async function restartGame() {
   const userId = await requireUserId();
@@ -115,6 +128,13 @@ export async function restartGame() {
   await resetMarketResearch(userId);
   await resetFinancingDecision(userId);
   await resetLicensing(userId);
+  // resetEquipment قبل resetRent مقصود: resetEquipment بيفلتر
+  // monthlyObligations (يشيل بس عناصر المعدات/العمال)، وresetRent بعده
+  // بيمسح المصفوفة بالكامل — هيك الحالة النهائية بعد "إعادة البدء"
+  // الكاملة ما فيها monthlyObligations إطلاقاً (مو مصفوفة فاضية
+  // متروكة)، بدل ما resetEquipment يرجّع ينشئها فاضية بعد ما
+  // resetRent يكون مسحها.
+  await resetEquipment(userId);
   await resetRent(userId);
   revalidatePath("/game");
 }
@@ -436,6 +456,107 @@ export async function confirmRentDecision(
     monthlyObligation:
       paymentMethod === "installments" ? { type: "rent", monthlyAmount: monthlyAmount! } : null,
     staticFields,
+  });
+
+  revalidatePath("/game");
+  return null;
+}
+
+export type EquipmentFormState = { error: string } | null;
+
+/**
+ * يتحقق: نوع خط معروف، مساحته ما تتخطى ميزانية rentSpaceSize (سيرفر-
+ * سايد، مو بس واجهة)، عدد عمال صحيح >= 1، وطريقة دفع صالحة (تقسيط
+ * ممنوع كلياً على الخط النصف أوتوماتيكي حتى لو انبعتت مباشرة). يرفض
+ * لو التكلفة المطلوبة أكبر من currentCapital، وإلا يخصم، يضيف قسط
+ * المعدات (إن كان تقسيط) وقسط رواتب العمال (دايماً) لـ
+ * monthlyObligations، ويخزّن القرار النهائي.
+ */
+export async function confirmEquipmentDecision(
+  _prevState: EquipmentFormState,
+  formData: FormData
+): Promise<EquipmentFormState> {
+  const userId = await requireUserId();
+
+  const equipmentType = String(formData.get("equipmentType") ?? "");
+  const option = getEquipmentOption(equipmentType);
+  if (!option) {
+    return { error: "لازم تختار نوع خط." };
+  }
+
+  const spaceSize = await getRentSpaceSize(userId);
+  const spaceBudget = spaceSize ? SPACE_BUDGET[spaceSize] : 0;
+  if (option.spaceUsed > spaceBudget) {
+    return { error: "هذا الخط لا يناسب المساحة المستأجرة." };
+  }
+
+  const rawWorkerCount = formData.get("workerCount");
+  const workerCount = Number(rawWorkerCount);
+  if (
+    rawWorkerCount === null ||
+    rawWorkerCount === "" ||
+    !Number.isFinite(workerCount) ||
+    !Number.isInteger(workerCount) ||
+    workerCount < 1
+  ) {
+    return { error: "عدد العمال لازم يكون رقم صحيح 1 أو أكثر." };
+  }
+
+  const paymentMethod = String(formData.get("paymentMethod") ?? "");
+  if (paymentMethod !== "cash" && paymentMethod !== "installments") {
+    return { error: "لازم تختار طريقة دفع." };
+  }
+  if (paymentMethod === "installments" && !option.allowsInstallments) {
+    return { error: "هذا الخط كاش إجباري — ما في خيار تقسيط له." };
+  }
+
+  let amountPaidNow: number;
+  let monthlyAmount: number | undefined;
+  if (paymentMethod === "cash") {
+    amountPaidNow = option.cost;
+  } else {
+    amountPaidNow = Math.round(option.cost * 0.2);
+    const remainingWithPremium = option.cost * 0.8 * 1.15;
+    monthlyAmount = Math.round(remainingWithPremium / 12);
+  }
+
+  const currentCapital = await getCurrentCapital(userId);
+  if (amountPaidNow > currentCapital) {
+    return {
+      error: `التكلفة المطلوبة (${amountPaidNow.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+    };
+  }
+
+  const workerMonthlyTotal = workerCount * WORKER_MONTHLY_SALARY;
+
+  const result: EquipmentResult = {
+    confirmed: true,
+    decidedAt: new Date().toISOString(),
+    equipmentType: option.type,
+    workerCount,
+    equipmentSpaceUsed: option.spaceUsed,
+    cost: option.cost,
+    paymentMethod,
+    amountPaidNow,
+    ...(monthlyAmount !== undefined ? { monthlyAmount } : {}),
+    workerMonthlyTotal,
+  };
+
+  const newObligations: { type: "equipment" | "production-workers"; monthlyAmount: number }[] = [];
+  if (monthlyAmount !== undefined) {
+    newObligations.push({ type: "equipment", monthlyAmount });
+  }
+  newObligations.push({ type: "production-workers", monthlyAmount: workerMonthlyTotal });
+
+  await applyEquipmentDecision(userId, {
+    totalDeduction: amountPaidNow,
+    newObligations,
+    staticFields: {
+      equipmentType: option.type,
+      workerCount,
+      equipmentSpaceUsed: option.spaceUsed,
+      equipmentResult: result,
+    },
   });
 
   revalidatePath("/game");

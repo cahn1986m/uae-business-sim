@@ -3,7 +3,8 @@ import { neon } from "@neondatabase/serverless";
 import { MARKET_RESEARCH_TOTAL_CREDIT, type MarketResearchResults } from "@/lib/market-research";
 import type { FinancingDecision } from "@/lib/financing";
 import type { LicensingPath, LicensingResult } from "@/lib/licensing";
-import type { NegotiationResult, RentResult } from "@/lib/rent";
+import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
+import type { EquipmentResult } from "@/lib/equipment";
 
 if (!process.env.DATABASE_URL) {
   // Thrown lazily at request time (not at import time) would be nicer, but since
@@ -417,6 +418,90 @@ export async function resetRent(userId: string): Promise<void> {
     SET data = data - 'rentChoice' - 'rentSpaceSize' - 'rentResult' - 'rentNegotiation'
                      - 'primeLocation' - 'freeSetupDays' - 'wasteRemovalIncluded'
                      - 'monthlyObligations',
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// مرحلة "المعدات" (مرحلة 6) — نوع الخط + عدد العمال.
+// ---------------------------------------------------------------------------
+
+/** مساحة الإيجار المختارة (من مرحلة 5) — لازم تكون موجودة قبل ما نوصل هالمرحلة. */
+export async function getRentSpaceSize(userId: string): Promise<RentSpaceSize | null> {
+  const rows = await sql`
+    SELECT data->>'rentSpaceSize' AS space_size
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.space_size as RentSpaceSize | null) ?? null;
+}
+
+/** يرجّع قرار المعدات النهائي المحفوظ، أو null لو اللاعب لسا ما أكّد. */
+export async function getEquipmentResult(userId: string): Promise<EquipmentResult | null> {
+  const rows = await sql`
+    SELECT data->'equipmentResult' AS result
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.result as EquipmentResult | null) ?? null;
+}
+
+/**
+ * يخصم التكلفة من currentCapital، يضيف قسط المعدات الشهري (إن كان
+ * تقسيط) وقسط رواتب عمال الإنتاج (دايماً) لـmonthlyObligations، ويخزّن
+ * equipmentType/workerCount/equipmentSpaceUsed/equipmentResult — كل
+ * شي بضربة UPDATE وحدة (atomic).
+ */
+export async function applyEquipmentDecision(
+  userId: string,
+  params: {
+    totalDeduction: number;
+    newObligations: { type: "equipment" | "production-workers"; monthlyAmount: number }[];
+    staticFields: Record<string, unknown>;
+  }
+): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = (
+          jsonb_set(
+            jsonb_set(
+              data,
+              '{currentCapital}',
+              to_jsonb(
+                COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+                - ${params.totalDeduction}::int
+              )
+            ),
+            '{monthlyObligations}',
+            COALESCE(data->'monthlyObligations', '[]'::jsonb) || ${JSON.stringify(params.newObligations)}::jsonb
+          )
+        ) || ${JSON.stringify(params.staticFields)}::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/**
+ * يمسح حقول المعدات، ويشيل بس عناصر "equipment" و"production-workers"
+ * من monthlyObligations (مو المصفوفة كلها — عنصر "rent" لازم يضل زي
+ * ما هو) — تُستخدم مع "إعادة البدء".
+ */
+export async function resetEquipment(userId: string): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          data - 'equipmentType' - 'workerCount' - 'equipmentSpaceUsed' - 'equipmentResult',
+          '{monthlyObligations}',
+          COALESCE(
+            (
+              SELECT jsonb_agg(elem)
+              FROM jsonb_array_elements(COALESCE(data->'monthlyObligations', '[]'::jsonb)) elem
+              WHERE elem->>'type' NOT IN ('equipment', 'production-workers')
+            ),
+            '[]'::jsonb
+          )
+        ),
         updated_at = now()
     WHERE user_id = ${userId}
   `;

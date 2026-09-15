@@ -10,17 +10,21 @@ import {
   getLicensingResult,
   getRentNegotiation,
   getRentResult,
+  getRentSpaceSize,
+  getEquipmentResult,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
 import type { LicensingResult } from "@/lib/licensing";
-import type { NegotiationResult, RentResult } from "@/lib/rent";
+import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
+import type { EquipmentResult } from "@/lib/equipment";
 import { advanceStage, restartGame } from "./actions";
 import MarketResearchStage from "./MarketResearchStage";
 import FinancingStage from "./FinancingStage";
 import FinancingCountdown from "./FinancingCountdown";
 import LicensingStage from "./LicensingStage";
 import RentStage from "./RentStage";
+import EquipmentStage from "./EquipmentStage";
 
 // المرحلة الحالية تُقرا من قاعدة البيانات بكل مرة — لازم رندر ديناميكي.
 export const dynamic = "force-dynamic";
@@ -29,6 +33,7 @@ const MARKET_RESEARCH_STAGE_ID = 2;
 const FINANCING_STAGE_ID = 3;
 const LICENSING_STAGE_ID = 4;
 const RENT_STAGE_ID = 5;
+const EQUIPMENT_STAGE_ID = 6;
 
 export default async function GamePage() {
   const { data: session } = await auth.getSession();
@@ -44,6 +49,7 @@ export default async function GamePage() {
   const isFinancingStage = currentStage === FINANCING_STAGE_ID;
   const isLicensingStage = currentStage === LICENSING_STAGE_ID;
   const isRentStage = currentStage === RENT_STAGE_ID;
+  const isEquipmentStage = currentStage === EQUIPMENT_STAGE_ID;
 
   // عرض مهلة الأداء (بعد ما يتأكّد قرار التمويل) لازم يظهر بكل شاشات
   // اللعبة التالية، مو بس مرحلة 3 — فبنجيبه دايماً بغض النظر شو المرحلة.
@@ -63,8 +69,14 @@ export default async function GamePage() {
   let licensingResult: LicensingResult | null = null;
   let rentNegotiation: NegotiationResult | null = null;
   let rentResult: RentResult | null = null;
+  let equipmentSpaceSize: RentSpaceSize | null = null;
+  let equipmentResult: EquipmentResult | null = null;
   let canAdvance =
-    !isMarketResearchStage && !isFinancingStage && !isLicensingStage && !isRentStage;
+    !isMarketResearchStage &&
+    !isFinancingStage &&
+    !isLicensingStage &&
+    !isRentStage &&
+    !isEquipmentStage;
 
   if (isMarketResearchStage) {
     [marketResearchCredit, marketResearchResults] = await Promise.all([
@@ -93,6 +105,14 @@ export default async function GamePage() {
     canAdvance = rentResult !== null;
   }
 
+  if (isEquipmentStage) {
+    [equipmentSpaceSize, equipmentResult] = await Promise.all([
+      getRentSpaceSize(session.user.id),
+      getEquipmentResult(session.user.id),
+    ]);
+    canAdvance = equipmentResult !== null;
+  }
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center">
       {financingDecision && remainingDays !== null && (
@@ -118,6 +138,10 @@ export default async function GamePage() {
       {isLicensingStage && <LicensingStage result={licensingResult} />}
 
       {isRentStage && <RentStage negotiation={rentNegotiation} result={rentResult} />}
+
+      {isEquipmentStage && equipmentSpaceSize !== null && (
+        <EquipmentStage spaceSize={equipmentSpaceSize} result={equipmentResult} />
+      )}
 
       {isLastStage ? (
         <p className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium dark:bg-zinc-900">
