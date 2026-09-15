@@ -54,3 +54,30 @@ export async function getGameState(userId: string) {
   `;
   return rows[0] ?? null;
 }
+
+/**
+ * يرجّع المرحلة الحالية للاعب من game_state.data->>'currentStage'.
+ * يبدأ بـ1 دايماً لو المفتاح مش موجود بعد (صف جديد، data = '{}').
+ */
+export async function getCurrentStage(userId: string): Promise<number> {
+  const rows = await sql`
+    SELECT (data->>'currentStage')::int AS current_stage
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const stage = rows[0]?.current_stage;
+  return typeof stage === "number" && stage >= 1 ? stage : 1;
+}
+
+/**
+ * يحدّث المرحلة الحالية بقاعدة البيانات (idempotent، بيحل مكان currentStage
+ * الموجود لو موجود أو ينشئه لو مش موجود بعد — data يبدأ '{}' فمظبوط).
+ */
+export async function setCurrentStage(userId: string, stage: number): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(data, '{currentStage}', to_jsonb(${stage}::int)),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}

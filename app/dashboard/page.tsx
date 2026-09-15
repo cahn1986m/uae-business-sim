@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { auth } from "@/lib/auth/server";
 import { ensureGameStateForUser } from "@/lib/db";
 import SignOutButton from "./SignOutButton";
@@ -25,8 +26,13 @@ export default async function DashboardPage() {
       <h1 className="text-2xl font-semibold">مرحباً {name} 👋</h1>
       <p className="max-w-md text-sm text-zinc-500">
         هاي لوحة التحكم — دليل إن جلستك شغالة وحسابك متصل بنجاح بـ Neon Auth.
-        باقي المراحل (10 مراحل اللعبة) رح تنضاف هون لاحقاً.
       </p>
+      <Link
+        href="/game"
+        className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+      >
+        ابدأ الجولة
+      </Link>
       <SignOutButton />
     </div>
   );
