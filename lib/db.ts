@@ -5,6 +5,7 @@ import type { FinancingDecision } from "@/lib/financing";
 import type { LicensingPath, LicensingResult } from "@/lib/licensing";
 import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
 import type { EquipmentResult } from "@/lib/equipment";
+import type { HiringDecision } from "@/lib/hiring";
 
 if (!process.env.DATABASE_URL) {
   // Thrown lazily at request time (not at import time) would be nicer, but since
@@ -498,6 +499,87 @@ export async function resetEquipment(userId: string): Promise<void> {
               SELECT jsonb_agg(elem)
               FROM jsonb_array_elements(COALESCE(data->'monthlyObligations', '[]'::jsonb)) elem
               WHERE elem->>'type' NOT IN ('equipment', 'production-workers')
+            ),
+            '[]'::jsonb
+          )
+        ),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// مرحلة "التوظيف" (مرحلة 7) — كيميائي ومحاسب، دوران مستقلان.
+// ---------------------------------------------------------------------------
+
+/**
+ * يرجّع قرار التوظيف (الأربعة حقول سوا)، أو null لو اللاعب لسا ما أكّد
+ * الدورين معاً. chemistHired/accountantHired بيتفحصوا بوجود المفتاح
+ * نفسه (مو بقيمته) — لأن "false" قيمة صالحة (قرار "لا توظف" فعلي).
+ */
+export async function getHiringDecision(userId: string): Promise<HiringDecision | null> {
+  const rows = await sql`
+    SELECT
+      data->>'chemistHired' AS chemist_hired,
+      data->>'chemistExperience' AS chemist_experience,
+      data->>'accountantHired' AS accountant_hired,
+      data->>'accountantExperience' AS accountant_experience
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const row = rows[0];
+  if (!row || row.chemist_hired === null || row.accountant_hired === null) {
+    return null;
+  }
+
+  return {
+    chemistHired: row.chemist_hired === "true",
+    chemistExperience: (row.chemist_experience as HiringDecision["chemistExperience"]) ?? null,
+    accountantHired: row.accountant_hired === "true",
+    accountantExperience: (row.accountant_experience as HiringDecision["accountantExperience"]) ?? null,
+  };
+}
+
+/**
+ * يخزّن قرار التوظيف — الأربعة حقول دفعة وحدة، ويضيف أي التزامات
+ * رواتب جديدة (0-2 عنصر) لـmonthlyObligations. بدون أي خصم فوري من
+ * currentCapital (الراتب التزام مستقبلي بس).
+ */
+export async function applyHiringDecision(
+  userId: string,
+  params: {
+    newObligations: { type: "salary-chemist" | "salary-accountant"; monthlyAmount: number }[];
+    staticFields: Record<string, unknown>;
+  }
+): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          data,
+          '{monthlyObligations}',
+          COALESCE(data->'monthlyObligations', '[]'::jsonb) || ${JSON.stringify(params.newObligations)}::jsonb
+        ) || ${JSON.stringify(params.staticFields)}::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/**
+ * يمسح الأربعة حقول، ويشيل بس عناصر "salary-chemist" و
+ * "salary-accountant" من monthlyObligations (بدون التأثير على rent/
+ * equipment/production-workers) — تُستخدم مع "إعادة البدء".
+ */
+export async function resetHiring(userId: string): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          data - 'chemistHired' - 'chemistExperience' - 'accountantHired' - 'accountantExperience',
+          '{monthlyObligations}',
+          COALESCE(
+            (
+              SELECT jsonb_agg(elem)
+              FROM jsonb_array_elements(COALESCE(data->'monthlyObligations', '[]'::jsonb)) elem
+              WHERE elem->>'type' NOT IN ('salary-chemist', 'salary-accountant')
             ),
             '[]'::jsonb
           )

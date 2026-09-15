@@ -25,6 +25,9 @@ import {
   getEquipmentResult,
   applyEquipmentDecision,
   resetEquipment,
+  getHiringDecision,
+  applyHiringDecision,
+  resetHiring,
 } from "@/lib/db";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
@@ -53,12 +56,14 @@ import {
   type RentResult,
 } from "@/lib/rent";
 import { getEquipmentOption, SPACE_BUDGET, WORKER_MONTHLY_SALARY, type EquipmentResult } from "@/lib/equipment";
+import { getHiringRole } from "@/lib/hiring";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
 const FINANCING_STAGE_ID = 3;
 const LICENSING_STAGE_ID = 4;
 const RENT_STAGE_ID = 5;
 const EQUIPMENT_STAGE_ID = 6;
+const HIRING_STAGE_ID = 7;
 
 async function requireUserId(): Promise<string> {
   const { data: session } = await auth.getSession();
@@ -112,6 +117,13 @@ export async function advanceStage() {
     }
   }
 
+  if (current === HIRING_STAGE_ID) {
+    const decision = await getHiringDecision(userId);
+    if (decision === null) {
+      throw new Error("لازم تأكّد قرار التوظيف للدورين قبل ما تكمّل.");
+    }
+  }
+
   const next = Math.min(current + 1, TOTAL_STAGES);
   await setCurrentStage(userId, next);
   revalidatePath("/game");
@@ -119,8 +131,8 @@ export async function advanceStage() {
 
 /**
  * إعادة البدء — يرجّع currentStage لـ1، وكمان يمسح تقدّم دراسة السوق
- * وقرار التمويل والترخيص والإيجار والمعدات حتى تكون كل مرحلة جاهزة من
- * الصفر بالجولة الجاية. للتجربة أثناء البناء فقط.
+ * وقرار التمويل والترخيص والإيجار والمعدات والتوظيف حتى تكون كل مرحلة
+ * جاهزة من الصفر بالجولة الجاية. للتجربة أثناء البناء فقط.
  */
 export async function restartGame() {
   const userId = await requireUserId();
@@ -128,13 +140,13 @@ export async function restartGame() {
   await resetMarketResearch(userId);
   await resetFinancingDecision(userId);
   await resetLicensing(userId);
-  // resetEquipment قبل resetRent مقصود: resetEquipment بيفلتر
-  // monthlyObligations (يشيل بس عناصر المعدات/العمال)، وresetRent بعده
+  // resetEquipment وresetHiring قبل resetRent مقصود: الاثنين بيفلتروا
+  // monthlyObligations (يشيلوا بس عناصرهم الخاصة)، وresetRent بعدهم
   // بيمسح المصفوفة بالكامل — هيك الحالة النهائية بعد "إعادة البدء"
   // الكاملة ما فيها monthlyObligations إطلاقاً (مو مصفوفة فاضية
-  // متروكة)، بدل ما resetEquipment يرجّع ينشئها فاضية بعد ما
-  // resetRent يكون مسحها.
+  // متروكة)، بدل ما يرجّعوا ينشئوها فاضية بعد ما resetRent يكون مسحها.
   await resetEquipment(userId);
+  await resetHiring(userId);
   await resetRent(userId);
   revalidatePath("/game");
 }
@@ -559,6 +571,62 @@ export async function confirmEquipmentDecision(
     },
   });
 
+  revalidatePath("/game");
+  return null;
+}
+
+export type HiringFormState = { error: string } | null;
+
+/**
+ * يتحقق إن الدورين الاثنين (كيميائي ومحاسب) عندهم قرار صالح (junior/
+ * senior/none) — الدوران مستقلان عن بعض، بس لازم الاثنين يتقرروا مع
+ * بعض بنفس التأكيد. بدون أي فحص currentCapital (راتب = التزام مستقبلي
+ * بس، مو خصم فوري). يضيف 0-2 عنصر رواتب لـmonthlyObligations حسب
+ * القرارات، ويخزّن الأربعة حقول النهائية.
+ */
+export async function confirmHiringDecision(
+  _prevState: HiringFormState,
+  formData: FormData
+): Promise<HiringFormState> {
+  const userId = await requireUserId();
+
+  const chemistChoice = String(formData.get("chemist") ?? "");
+  const accountantChoice = String(formData.get("accountant") ?? "");
+
+  const chemistRole = getHiringRole("chemist");
+  const accountantRole = getHiringRole("accountant");
+  const chemistCandidate = chemistRole?.candidates.find((c) => c.choice === chemistChoice);
+  const accountantCandidate = accountantRole?.candidates.find((c) => c.choice === accountantChoice);
+
+  if (!chemistCandidate) {
+    return { error: "لازم تقرر بخصوص الكيميائي (وظّف أو لا توظف)." };
+  }
+  if (!accountantCandidate) {
+    return { error: "لازم تقرر بخصوص المحاسب (وظّف أو لا توظف)." };
+  }
+
+  const newObligations: { type: "salary-chemist" | "salary-accountant"; monthlyAmount: number }[] = [];
+  const staticFields: Record<string, unknown> = {};
+
+  if (chemistCandidate.choice === "none") {
+    staticFields.chemistHired = false;
+    staticFields.chemistExperience = null;
+  } else {
+    staticFields.chemistHired = true;
+    staticFields.chemistExperience = chemistCandidate.choice;
+    newObligations.push({ type: "salary-chemist", monthlyAmount: chemistCandidate.monthlySalary });
+  }
+
+  if (accountantCandidate.choice === "none") {
+    staticFields.accountantHired = false;
+    staticFields.accountantExperience = null;
+  } else {
+    staticFields.accountantHired = true;
+    staticFields.accountantExperience = accountantCandidate.choice;
+    newObligations.push({ type: "salary-accountant", monthlyAmount: accountantCandidate.monthlySalary });
+  }
+
+  await applyHiringDecision(userId, { newObligations, staticFields });
   revalidatePath("/game");
   return null;
 }
