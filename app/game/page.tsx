@@ -6,19 +6,24 @@ import {
   getMarketResearchResults,
   getFinancingDecision,
   getDaysConsumed,
+  getCurrentCapital,
+  getLicensingResult,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
+import type { LicensingResult } from "@/lib/licensing";
 import { advanceStage, restartGame } from "./actions";
 import MarketResearchStage from "./MarketResearchStage";
 import FinancingStage from "./FinancingStage";
 import FinancingCountdown from "./FinancingCountdown";
+import LicensingStage from "./LicensingStage";
 
 // المرحلة الحالية تُقرا من قاعدة البيانات بكل مرة — لازم رندر ديناميكي.
 export const dynamic = "force-dynamic";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
 const FINANCING_STAGE_ID = 3;
+const LICENSING_STAGE_ID = 4;
 
 export default async function GamePage() {
   const { data: session } = await auth.getSession();
@@ -32,6 +37,7 @@ export default async function GamePage() {
   const isLastStage = currentStage >= TOTAL_STAGES;
   const isMarketResearchStage = currentStage === MARKET_RESEARCH_STAGE_ID;
   const isFinancingStage = currentStage === FINANCING_STAGE_ID;
+  const isLicensingStage = currentStage === LICENSING_STAGE_ID;
 
   // عرض مهلة الأداء (بعد ما يتأكّد قرار التمويل) لازم يظهر بكل شاشات
   // اللعبة التالية، مو بس مرحلة 3 — فبنجيبه دايماً بغض النظر شو المرحلة.
@@ -48,7 +54,8 @@ export default async function GamePage() {
   // بعد التأكيد.
   let marketResearchCredit: number | null = null;
   let marketResearchResults: MarketResearchResults | null = null;
-  let canAdvance = !isMarketResearchStage && !isFinancingStage;
+  let licensingResult: LicensingResult | null = null;
+  let canAdvance = !isMarketResearchStage && !isFinancingStage && !isLicensingStage;
 
   if (isMarketResearchStage) {
     [marketResearchCredit, marketResearchResults] = await Promise.all([
@@ -60,6 +67,13 @@ export default async function GamePage() {
 
   if (isFinancingStage) {
     canAdvance = financingDecision !== null;
+  }
+
+  if (isLicensingStage) {
+    // currentCapital بيتهيّأ (lazy) من startingCapital أول زيارة لهالمرحلة.
+    await getCurrentCapital(session.user.id);
+    licensingResult = await getLicensingResult(session.user.id);
+    canAdvance = licensingResult !== null;
   }
 
   return (
@@ -83,6 +97,8 @@ export default async function GamePage() {
       )}
 
       {isFinancingStage && <FinancingStage decision={financingDecision} />}
+
+      {isLicensingStage && <LicensingStage result={licensingResult} />}
 
       {isLastStage ? (
         <p className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium dark:bg-zinc-900">

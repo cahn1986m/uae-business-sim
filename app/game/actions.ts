@@ -12,6 +12,10 @@ import {
   getFinancingDecision,
   saveFinancingDecision,
   resetFinancingDecision,
+  getCurrentCapital,
+  getLicensingResult,
+  applyLicensingDecision,
+  resetLicensing,
 } from "@/lib/db";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
@@ -22,9 +26,20 @@ import {
   type MarketResearchServiceKey,
 } from "@/lib/market-research";
 import { getFinancingTier, type FinancingDecision } from "@/lib/financing";
+import {
+  AGENCY_COST,
+  AGENCY_DAYS,
+  SELF_BASE_COST,
+  SELF_BASE_DAYS,
+  SELF_UNREADY_EXTRA_DAYS,
+  rollSelfLicensingEvents,
+  type LicensingPath,
+  type LicensingResult,
+} from "@/lib/licensing";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
 const FINANCING_STAGE_ID = 3;
+const LICENSING_STAGE_ID = 4;
 
 async function requireUserId(): Promise<string> {
   const { data: session } = await auth.getSession();
@@ -57,6 +72,13 @@ export async function advanceStage() {
     }
   }
 
+  if (current === LICENSING_STAGE_ID) {
+    const result = await getLicensingResult(userId);
+    if (result === null) {
+      throw new Error("لازم تأكّد مسار ترخيص قبل ما تكمّل.");
+    }
+  }
+
   const next = Math.min(current + 1, TOTAL_STAGES);
   await setCurrentStage(userId, next);
   revalidatePath("/game");
@@ -72,6 +94,7 @@ export async function restartGame() {
   await setCurrentStage(userId, 1);
   await resetMarketResearch(userId);
   await resetFinancingDecision(userId);
+  await resetLicensing(userId);
   revalidatePath("/game");
 }
 
@@ -177,6 +200,82 @@ export async function confirmFinancingDecision(
   };
 
   await saveFinancingDecision(userId, decision);
+  revalidatePath("/game");
+  return null;
+}
+
+export type LicensingFormState = { error: string } | null;
+
+/**
+ * يتأكد إن اللاعب اختار مسار معروف، يحسب التكلفة والأيام الإجمالية
+ * (بما فيها مفاجآت مسار "self" العشوائية — تُرمى هون مرة وحدة، ما
+ * تُعاد لاحقاً)، يرفض سيرفر-سايد لو التكلفة أكبر من currentCapital
+ * المتاح، وإلا يخصم ويستهلك ويخزّن النتيجة النهائية مرة وحدة.
+ */
+export async function confirmLicensingDecision(
+  _prevState: LicensingFormState,
+  formData: FormData
+): Promise<LicensingFormState> {
+  const userId = await requireUserId();
+
+  const path = String(formData.get("path") ?? "") as LicensingPath | "";
+  if (path !== "agency" && path !== "self") {
+    return { error: "لازم تختار مسار ترخيص." };
+  }
+
+  const currentCapital = await getCurrentCapital(userId);
+
+  if (path === "agency") {
+    if (AGENCY_COST > currentCapital) {
+      return {
+        error: `التكلفة (${AGENCY_COST.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+      };
+    }
+
+    const result: LicensingResult = {
+      confirmed: true,
+      decidedAt: new Date().toISOString(),
+      path: "agency",
+      totalCost: AGENCY_COST,
+      totalDays: AGENCY_DAYS,
+    };
+
+    await applyLicensingDecision(userId, {
+      path: "agency",
+      cost: AGENCY_COST,
+      days: AGENCY_DAYS,
+      result,
+    });
+    revalidatePath("/game");
+    return null;
+  }
+
+  // path === "self"
+  const wasReady = formData.get("ready") === "on";
+  const events = rollSelfLicensingEvents();
+  const totalCost = SELF_BASE_COST + events.reduce((sum, e) => sum + e.extraCost, 0);
+  const totalDays =
+    SELF_BASE_DAYS +
+    (wasReady ? 0 : SELF_UNREADY_EXTRA_DAYS) +
+    events.reduce((sum, e) => sum + e.extraDays, 0);
+
+  if (totalCost > currentCapital) {
+    return {
+      error: `التكلفة الإجمالية (${totalCost.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+    };
+  }
+
+  const result: LicensingResult = {
+    confirmed: true,
+    decidedAt: new Date().toISOString(),
+    path: "self",
+    totalCost,
+    totalDays,
+    wasReady,
+    events,
+  };
+
+  await applyLicensingDecision(userId, { path: "self", cost: totalCost, days: totalDays, result });
   revalidatePath("/game");
   return null;
 }

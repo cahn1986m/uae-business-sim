@@ -2,6 +2,7 @@ import "server-only";
 import { neon } from "@neondatabase/serverless";
 import { MARKET_RESEARCH_TOTAL_CREDIT, type MarketResearchResults } from "@/lib/market-research";
 import type { FinancingDecision } from "@/lib/financing";
+import type { LicensingPath, LicensingResult } from "@/lib/licensing";
 
 if (!process.env.DATABASE_URL) {
   // Thrown lazily at request time (not at import time) would be nicer, but since
@@ -241,4 +242,85 @@ export async function consumeGameDays(userId: string, days: number): Promise<num
     RETURNING (data->>'daysConsumed')::int AS days_consumed
   `;
   return rows[0]?.days_consumed ?? days;
+}
+
+// ---------------------------------------------------------------------------
+// مرحلة "الترخيص" (مرحلة 4) — أول إنفاق فعلي (currentCapital).
+// ---------------------------------------------------------------------------
+
+/**
+ * يرجّع الرصيد الفعلي المتاح للإنفاق. أول زيارة لهالمرحلة بيهيّئه من
+ * startingCapital (المحفوظ من مرحلة التمويل) ويخزّنه فوراً — من
+ * هاللحظة، currentCapital هو يلي يُخصم منه، مو startingCapital يلي
+ * يضل سجل تاريخي ثابت.
+ */
+export async function getCurrentCapital(userId: string): Promise<number> {
+  const rows = await sql`
+    SELECT
+      (data->>'currentCapital')::int AS current_capital,
+      (data->>'startingCapital')::int AS starting_capital
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const row = rows[0];
+  if (typeof row?.current_capital === "number") {
+    return row.current_capital;
+  }
+
+  const initial = typeof row?.starting_capital === "number" ? row.starting_capital : 0;
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(data, '{currentCapital}', to_jsonb(${initial}::int)),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+  return initial;
+}
+
+/** يرجّع نتيجة الترخيص المحفوظة، أو null لو اللاعب لسا ما أكّد مسار. */
+export async function getLicensingResult(userId: string): Promise<LicensingResult | null> {
+  const rows = await sql`
+    SELECT data->'licensingResult' AS result
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.result as LicensingResult | null) ?? null;
+}
+
+/**
+ * يخصم التكلفة من currentCapital، يستهلك الأيام، ويخزّن licensingPath +
+ * licensingResult — الأربعة تغييرات بضربة UPDATE وحدة (atomic)، مو
+ * استدعاءات منفصلة، حتى ما يصير تحديث جزئي لو صار خطأ بالنص.
+ */
+export async function applyLicensingDecision(
+  userId: string,
+  params: { path: LicensingPath; cost: number; days: number; result: LicensingResult }
+): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          jsonb_set(
+            data,
+            '{currentCapital}',
+            to_jsonb(
+              COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+              - ${params.cost}::int
+            )
+          ),
+          '{daysConsumed}',
+          to_jsonb(COALESCE((data->>'daysConsumed')::int, 0) + ${params.days}::int)
+        ) || ${JSON.stringify({ licensingPath: params.path, licensingResult: params.result })}::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/** يمسح currentCapital وlicensingPath/licensingResult — تُستخدم مع "إعادة البدء". */
+export async function resetLicensing(userId: string): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = data - 'currentCapital' - 'licensingPath' - 'licensingResult',
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
 }
