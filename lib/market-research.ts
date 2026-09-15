@@ -2,39 +2,45 @@
  * مرحلة "دراسة السوق" (المرحلة 2) تحديداً — أول منطق قرارات حقيقي
  * بالمشروع، بما فيه أول آلية عشوائية. مقصود إنه معزول بملفه الخاص ومو
  * جزء من هيكل المراحل العام (lib/game-stages.ts).
+ *
+ * **تحديث جوهري (نفس الخطوة، قبل ما تُرفع):** استبدلنا آلية "توزيع
+ * مبلغ حر على 3 قنوات" بقائمة خدمات بسعر ثابت (4 عناصر) — checkbox
+ * لكل واحدة، مو نص حر. شوف progress.md لتفاصيل الانحراف عن الوصف
+ * الأصلي بـroadmap.md.
  */
 
-/** الكريديت المخصص لهالمرحلة — منفصل تماماً عن أي رأس مال أساسي لاحق. */
+/** الحد الأقصى للصرف بهالمرحلة — منفصل تماماً عن أي رأس مال أساسي لاحق. */
 export const MARKET_RESEARCH_TOTAL_CREDIT = 30000;
 
-export type MarketResearchChannelKey = "network" | "feasibility" | "consultants";
+export type MarketResearchServiceKey =
+  | "feasibility"
+  | "consultants"
+  | "hotel5star"
+  | "hotel2star";
 
 /**
- * القنوات التلاتة — بنفس الترتيب دايماً. **العرض لازم يكون متطابق بصرياً
- * 100% بينها** (نفس التصميم بالضبط لكل قناة، بدون أي تلميح موثوقية) —
- * قاعدة من roadmap.md غير قابلة للتفاوض. هالملف نفسه ما بيحتوي أي
- * "ترتيب أفضلية" — بس الاسم لكل قناة.
+ * الأربعة خدمات — بنفس الترتيب دايماً. **العرض لازم يكون متطابق بصرياً
+ * 100% بينها** (نفس التصميم بالضبط لكل واحدة، بدون أي تلميح موثوقية) —
+ * قاعدة من roadmap.md غير قابلة للتفاوض، تنطبق هون كمان.
  */
-export const MARKET_RESEARCH_CHANNELS: { key: MarketResearchChannelKey; label: string }[] = [
-  { key: "network", label: "شبكة علاقات وفنادق 5 نجوم" },
-  { key: "feasibility", label: "دراسة جدوى رسمية" },
-  { key: "consultants", label: "استشاريين من إعلانات" },
+export const MARKET_RESEARCH_SERVICES: {
+  key: MarketResearchServiceKey;
+  label: string;
+  price: number;
+}[] = [
+  { key: "feasibility", label: "دراسة جدوى رسمية", price: 10000 },
+  { key: "consultants", label: "استشاريين من إعلانات", price: 2000 },
+  { key: "hotel5star", label: "فندق 5 نجوم (شبكة علاقات راقية)", price: 5000 },
+  { key: "hotel2star", label: "فندق نجمتين (اختلاط بالعاملين)", price: 2500 },
 ];
 
-/**
- * احتمالات النجاح ونصوص النتائج لكل قناة — هاي المعلومة يلي اللاعب ما
- * بيشوفها قبل ما يقرر ويصرف (العرض قبل القرار محايد تماماً، هون بس
- * منطق الحساب بعد التأكيد).
- */
+/** الخدمتين يلي بترجعوا نتيجة فورية بعد الشراء (النتائج عشوائية). */
+type RolledServiceKey = "feasibility" | "consultants";
+
 const OUTCOME_CONFIG: Record<
-  MarketResearchChannelKey,
+  RolledServiceKey,
   { successRate: number; successMessage: string; failureMessage: string }
 > = {
-  network: {
-    successRate: 0.7,
-    successMessage: "السوق يبدو واعداً لمنتجك.",
-    failureMessage: "ما طلعت معلومة ملموسة من هالقناة هالمرة.",
-  },
   feasibility: {
     successRate: 0.9,
     successMessage: "دراسة الجدوى رجعت معلومات مفصّلة ومشجّعة عن السوق.",
@@ -48,35 +54,29 @@ const OUTCOME_CONFIG: Record<
 };
 
 export type ChannelOutcome = {
-  amountSpent: number;
-  /** null = ما صُرف شي على هالقناة، فما في نتيجة (مو عشوائية بهالحالة). */
-  success: boolean | null;
+  success: boolean;
   message: string;
 };
+
+/** فنادق الشبكة — تُخزّن كعلم فقط، بدون نتيجة ظاهرة، لمرحلة "البيع" لاحقاً. */
+export type HotelTier = "5star" | "2star";
 
 export type MarketResearchResults = {
   confirmed: true;
   decidedAt: string;
-  outcomes: Record<MarketResearchChannelKey, ChannelOutcome>;
+  /** كل الخدمات يلي اللاعب اشتراها بهالتأكيد (حتى الفنادق بدون نتيجة ظاهرة). */
+  purchased: MarketResearchServiceKey[];
+  /** نتائج فورية — موجودة بس للخدمات المشتراة يلي عندها نتيجة (دراسة الجدوى/الاستشاريين). */
+  outcomes: Partial<Record<RolledServiceKey, ChannelOutcome>>;
+  /** أعلام شبكة الفنادق — تُستخدم لاحقاً بمرحلة البيع، غير موجودة لو ما اشترى فندق. */
+  hotelConnection?: HotelTier[];
 };
 
-/**
- * يحسب نتيجة قناة وحدة بناءً على المبلغ المصروف عليها. لو المبلغ صفر،
- * ما في رمية نرد أصلاً — منطقي، صرف صفر ما بيرجّع معلومة.
- */
-export function rollChannelOutcome(
-  key: MarketResearchChannelKey,
-  amountSpent: number
-): ChannelOutcome {
-  if (amountSpent <= 0) {
-    return { amountSpent: 0, success: null, message: "ما صرفت شي على هالقناة." };
-  }
-
+/** يحسب نتيجة عشوائية لخدمة دراسة الجدوى أو الاستشاريين. */
+export function rollServiceOutcome(key: RolledServiceKey): ChannelOutcome {
   const config = OUTCOME_CONFIG[key];
   const success = Math.random() < config.successRate;
-
   return {
-    amountSpent,
     success,
     message: success ? config.successMessage : config.failureMessage,
   };

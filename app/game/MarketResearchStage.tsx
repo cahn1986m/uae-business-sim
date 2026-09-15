@@ -1,13 +1,14 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { confirmMarketResearchAllocation, type MarketResearchFormState } from "./actions";
-import { MARKET_RESEARCH_CHANNELS, type MarketResearchResults } from "@/lib/market-research";
+import { confirmMarketResearchPurchase, type MarketResearchFormState } from "./actions";
+import { MARKET_RESEARCH_SERVICES, type MarketResearchResults } from "@/lib/market-research";
 
 /**
- * واجهة مرحلة "دراسة السوق" — قبل التأكيد: نموذج توزيع الكريديت على
- * القنوات التلاتة (نفس التصميم بالضبط لكل واحدة، بدون أي تلميح
- * موثوقية). بعد التأكيد: عرض النتائج المحفوظة بس (بدون إعادة حساب).
+ * واجهة مرحلة "دراسة السوق" — قبل التأكيد: قائمة 4 خدمات بسعر ثابت
+ * (checkbox لكل واحدة، نفس التصميم بالضبط، بدون أي تلميح موثوقية).
+ * بعد التأكيد: نتيجة فورية لدراسة الجدوى/الاستشاريين لو اتشرو، وبدون
+ * أي نص نتيجة للفنادق (علم صامت لمرحلة البيع لاحقاً).
  */
 export default function MarketResearchStage({
   credit,
@@ -17,70 +18,77 @@ export default function MarketResearchStage({
   results: MarketResearchResults | null;
 }) {
   const [state, formAction, isPending] = useActionState<MarketResearchFormState, FormData>(
-    confirmMarketResearchAllocation,
+    confirmMarketResearchPurchase,
     null
   );
 
-  const [amounts, setAmounts] = useState<Record<string, string>>(
-    Object.fromEntries(MARKET_RESEARCH_CHANNELS.map((c) => [c.key, ""]))
-  );
+  const [selected, setSelected] = useState<Set<string>>(new Set());
 
   if (results?.confirmed) {
     return (
       <div className="w-full max-w-md space-y-3">
-        <p className="text-sm text-zinc-500">نتائج دراسة السوق:</p>
-        {MARKET_RESEARCH_CHANNELS.map(({ key, label }) => {
-          const outcome = results.outcomes[key];
-          return (
-            <div
-              key={key}
-              className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
-            >
-              <p className="font-medium">{label}</p>
-              <p className="mt-1 text-xs text-zinc-500">
-                المبلغ المصروف: {outcome.amountSpent.toLocaleString("ar")}
-              </p>
-              <p className="mt-1 text-sm">{outcome.message}</p>
-            </div>
-          );
-        })}
+        <p className="text-sm text-zinc-500">قرار دراسة السوق مؤكّد.</p>
+
+        {results.outcomes.feasibility && (
+          <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
+            <p className="font-medium">دراسة جدوى رسمية</p>
+            <p className="mt-1 text-sm">{results.outcomes.feasibility.message}</p>
+          </div>
+        )}
+
+        {results.outcomes.consultants && (
+          <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
+            <p className="font-medium">استشاريين من إعلانات</p>
+            <p className="mt-1 text-sm">{results.outcomes.consultants.message}</p>
+          </div>
+        )}
       </div>
     );
   }
 
-  const totalEntered = Object.values(amounts).reduce((sum, v) => sum + (Number(v) || 0), 0);
-  const remaining = credit - totalEntered;
+  const totalCost = MARKET_RESEARCH_SERVICES.filter((s) => selected.has(s.key)).reduce(
+    (sum, s) => sum + s.price,
+    0
+  );
+  const remaining = credit - totalCost;
 
   return (
     <form action={formAction} className="w-full max-w-md space-y-4">
       <p className="text-sm text-zinc-500">
-        الرصيد المتاح: {credit.toLocaleString("ar")} — المتبقي: {remaining.toLocaleString("ar")}
+        الحد الأقصى: {credit.toLocaleString("ar")} — المتبقي: {remaining.toLocaleString("ar")}
       </p>
 
       <div className="space-y-3">
-        {MARKET_RESEARCH_CHANNELS.map(({ key, label }) => (
-          <div
+        {MARKET_RESEARCH_SERVICES.map(({ key, label, price }) => (
+          <label
             key={key}
-            className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
+            htmlFor={key}
+            className="flex items-center justify-between rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
           >
-            <label htmlFor={key} className="mb-2 block text-sm font-medium">
-              {label}
-            </label>
-            <input
-              id={key}
-              name={key}
-              type="number"
-              min={0}
-              step={1}
-              inputMode="numeric"
-              value={amounts[key]}
-              onChange={(e) =>
-                setAmounts((prev) => ({ ...prev, [key]: e.target.value }))
-              }
-              placeholder="0"
-              className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
-            />
-          </div>
+            <span className="text-sm font-medium">{label}</span>
+            <span className="flex items-center gap-3">
+              <span className="text-xs text-zinc-500">{price.toLocaleString("ar")}</span>
+              <input
+                id={key}
+                name="services"
+                value={key}
+                type="checkbox"
+                checked={selected.has(key)}
+                onChange={(e) => {
+                  setSelected((prev) => {
+                    const next = new Set(prev);
+                    if (e.target.checked) {
+                      next.add(key);
+                    } else {
+                      next.delete(key);
+                    }
+                    return next;
+                  });
+                }}
+                className="h-4 w-4"
+              />
+            </span>
+          </label>
         ))}
       </div>
 
@@ -95,7 +103,7 @@ export default function MarketResearchStage({
         disabled={isPending}
         className="w-full rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        {isPending ? "جاري التأكيد..." : "تأكيد التوزيع"}
+        {isPending ? "جاري التأكيد..." : "تأكيد"}
       </button>
     </form>
   );

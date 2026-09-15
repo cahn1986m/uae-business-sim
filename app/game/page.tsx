@@ -27,8 +27,9 @@ export default async function GamePage() {
   const isLastStage = currentStage >= TOTAL_STAGES;
   const isMarketResearchStage = currentStage === MARKET_RESEARCH_STAGE_ID;
 
-  // بمرحلة دراسة السوق تحديداً: لازم اللاعب يأكّد توزيع الكريديت قبل
-  // ما يقدر يكمّل — ما بنعرض زر "التالي" إلا بعد التأكيد.
+  // بمرحلة دراسة السوق تحديداً: لازم اللاعب يأكّد قرار الشراء (حتى لو
+  // قرار "ما بشتري شي") قبل ما يقدر يكمّل — ما بنعرض زر "التالي" إلا
+  // بعد التأكيد.
   let marketResearchCredit: number | null = null;
   let marketResearchResults: MarketResearchResults | null = null;
   let canAdvance = !isMarketResearchStage;

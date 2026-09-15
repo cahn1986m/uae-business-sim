@@ -12,11 +12,11 @@ import {
 } from "@/lib/db";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
-  MARKET_RESEARCH_CHANNELS,
-  rollChannelOutcome,
-  type ChannelOutcome,
-  type MarketResearchChannelKey,
+  MARKET_RESEARCH_SERVICES,
+  rollServiceOutcome,
+  type HotelTier,
   type MarketResearchResults,
+  type MarketResearchServiceKey,
 } from "@/lib/market-research";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
@@ -32,7 +32,7 @@ async function requireUserId(): Promise<string> {
 /**
  * ينقل اللاعب للمرحلة التالية (يتوقف عند 10، ما يتخطاها). محمي كمان من
  * السيرفر (مو بس بإخفاء الزر بالواجهة) — ما يسمح يتخطى مرحلة دراسة
- * السوق قبل ما يأكّد توزيع الكريديت فعلياً.
+ * السوق قبل ما يأكّد قرار الشراء فعلياً (حتى لو القرار "ما بشتري شي").
  */
 export async function advanceStage() {
   const userId = await requireUserId();
@@ -41,7 +41,7 @@ export async function advanceStage() {
   if (current === MARKET_RESEARCH_STAGE_ID) {
     const results = await getMarketResearchResults(userId);
     if (results?.confirmed !== true) {
-      throw new Error("لازم تأكّد توزيع كريديت دراسة السوق قبل ما تكمّل.");
+      throw new Error("لازم تأكّد قرار دراسة السوق قبل ما تكمّل.");
     }
   }
 
@@ -52,7 +52,7 @@ export async function advanceStage() {
 
 /**
  * إعادة البدء — يرجّع currentStage لـ1، وكمان يمسح تقدّم دراسة السوق
- * (الكريديت والنتائج) حتى تكون المرحلة جاهزة من الصفر بالجولة الجاية.
+ * (الحد الأقصى والنتائج) حتى تكون المرحلة جاهزة من الصفر بالجولة الجاية.
  * للتجربة أثناء البناء فقط.
  */
 export async function restartGame() {
@@ -65,41 +65,54 @@ export async function restartGame() {
 export type MarketResearchFormState = { error: string } | null;
 
 /**
- * يتأكد إن التوزيع صالح (أرقام صحيحة غير سالبة، مجموعها ما يتخطى
- * الرصيد)، يحسب نتيجة كل قناة عشوائياً، ويخزّن النتائج مرة وحدة —
- * بعدها القراءة بس، ما تُعاد الحسبة.
+ * يتأكد إن السلة صالحة (خدمات معروفة فقط، مجموع أسعارها ما يتخطى
+ * الحد الأقصى)، ينفّذ الشراء دفعة وحدة: يحسب نتيجة فورية عشوائية
+ * لدراسة الجدوى/الاستشاريين لو اتختارو، ويخزّن علم شبكة الفنادق بدون
+ * نتيجة ظاهرة لو اتختارت. يخزّن كل شي مرة وحدة — بعدها القراءة بس.
  */
-export async function confirmMarketResearchAllocation(
+export async function confirmMarketResearchPurchase(
   _prevState: MarketResearchFormState,
   formData: FormData
 ): Promise<MarketResearchFormState> {
   const userId = await requireUserId();
 
-  const amounts = {} as Record<MarketResearchChannelKey, number>;
-  for (const { key } of MARKET_RESEARCH_CHANNELS) {
-    const raw = formData.get(key);
-    const amount = Number(raw);
-    if (raw === null || raw === "" || !Number.isFinite(amount) || !Number.isInteger(amount) || amount < 0) {
-      return { error: "كل المبالغ لازم تكون أرقام صحيحة وموجبة (أو صفر)." };
-    }
-    amounts[key] = amount;
-  }
+  const validKeys = new Set(MARKET_RESEARCH_SERVICES.map((s) => s.key));
+  const selected = [
+    ...new Set(
+      formData
+        .getAll("services")
+        .map(String)
+        .filter((key): key is MarketResearchServiceKey => validKeys.has(key as MarketResearchServiceKey))
+    ),
+  ];
 
   const credit = await getMarketResearchCredit(userId);
-  const total = Object.values(amounts).reduce((sum, n) => sum + n, 0);
+  const total = MARKET_RESEARCH_SERVICES.filter((s) => selected.includes(s.key)).reduce(
+    (sum, s) => sum + s.price,
+    0
+  );
   if (total > credit) {
-    return { error: `مجموع التوزيع (${total}) أكبر من الرصيد المتاح (${credit}).` };
+    return { error: `مجموع الاختيارات (${total}) أكبر من الحد الأقصى (${credit}).` };
   }
 
-  const outcomes = {} as Record<MarketResearchChannelKey, ChannelOutcome>;
-  for (const { key } of MARKET_RESEARCH_CHANNELS) {
-    outcomes[key] = rollChannelOutcome(key, amounts[key]);
+  const outcomes: MarketResearchResults["outcomes"] = {};
+  if (selected.includes("feasibility")) {
+    outcomes.feasibility = rollServiceOutcome("feasibility");
   }
+  if (selected.includes("consultants")) {
+    outcomes.consultants = rollServiceOutcome("consultants");
+  }
+
+  const hotelConnection: HotelTier[] = [];
+  if (selected.includes("hotel5star")) hotelConnection.push("5star");
+  if (selected.includes("hotel2star")) hotelConnection.push("2star");
 
   const results: MarketResearchResults = {
     confirmed: true,
     decidedAt: new Date().toISOString(),
+    purchased: selected,
     outcomes,
+    ...(hotelConnection.length > 0 ? { hotelConnection } : {}),
   };
 
   await saveMarketResearchResults(userId, results);
