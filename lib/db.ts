@@ -1,6 +1,7 @@
 import "server-only";
 import { neon } from "@neondatabase/serverless";
 import { MARKET_RESEARCH_TOTAL_CREDIT, type MarketResearchResults } from "@/lib/market-research";
+import type { FinancingDecision } from "@/lib/financing";
 
 if (!process.env.DATABASE_URL) {
   // Thrown lazily at request time (not at import time) would be nicer, but since
@@ -146,6 +147,61 @@ export async function resetMarketResearch(userId: string): Promise<void> {
   await sql`
     UPDATE game_state
     SET data = data - 'marketResearchCredit' - 'marketResearchResults',
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// مرحلة "قرار التمويل" (مرحلة 3) — رأس المال الأساسي + مهلة الأداء.
+// ---------------------------------------------------------------------------
+
+/**
+ * يرجّع قرار التمويل المحفوظ (الأربعة حقول سوا)، أو null لو اللاعب لسا
+ * ما أكّد قرار تمويل. الحقول مخزّنة flat بعمود data (مو متداخلة).
+ */
+export async function getFinancingDecision(userId: string): Promise<FinancingDecision | null> {
+  const rows = await sql`
+    SELECT
+      data->>'startingCapital' AS starting_capital,
+      data->>'investorEquityPercent' AS investor_equity_percent,
+      data->>'financingStartedAt' AS financing_started_at,
+      data->>'financingDeadlineDays' AS financing_deadline_days
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const row = rows[0];
+  if (!row || row.starting_capital === null || row.financing_started_at === null) {
+    return null;
+  }
+
+  return {
+    startingCapital: Number(row.starting_capital),
+    investorEquityPercent: Number(row.investor_equity_percent),
+    financingStartedAt: row.financing_started_at as string,
+    financingDeadlineDays: Number(row.financing_deadline_days),
+  };
+}
+
+/** يخزّن قرار التمويل مرة وحدة — الأربعة حقول دفعة وحدة، بدمج جزئي (merge) مع data الموجودة. */
+export async function saveFinancingDecision(
+  userId: string,
+  decision: FinancingDecision
+): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = data || ${JSON.stringify(decision)}::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/** يمسح الأربعة حقول بالكامل — تُستخدم مع "إعادة البدء". */
+export async function resetFinancingDecision(userId: string): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = data - 'startingCapital' - 'investorEquityPercent'
+                     - 'financingStartedAt' - 'financingDeadlineDays',
         updated_at = now()
     WHERE user_id = ${userId}
   `;
