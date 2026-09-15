@@ -1,11 +1,19 @@
 import { redirect } from "next/navigation";
 import { auth } from "@/lib/auth/server";
-import { getCurrentStage } from "@/lib/db";
+import {
+  getCurrentStage,
+  getMarketResearchCredit,
+  getMarketResearchResults,
+} from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
+import type { MarketResearchResults } from "@/lib/market-research";
 import { advanceStage, restartGame } from "./actions";
+import MarketResearchStage from "./MarketResearchStage";
 
 // المرحلة الحالية تُقرأ من قاعدة البيانات بكل مرة — لازم رندر ديناميكي.
 export const dynamic = "force-dynamic";
+
+const MARKET_RESEARCH_STAGE_ID = 2;
 
 export default async function GamePage() {
   const { data: session } = await auth.getSession();
@@ -17,6 +25,21 @@ export default async function GamePage() {
   const currentStage = await getCurrentStage(session.user.id);
   const stage = getStageById(currentStage);
   const isLastStage = currentStage >= TOTAL_STAGES;
+  const isMarketResearchStage = currentStage === MARKET_RESEARCH_STAGE_ID;
+
+  // بمرحلة دراسة السوق تحديداً: لازم اللاعب يأكّد توزيع الكريديت قبل
+  // ما يقدر يكمّل — ما بنعرض زر "التالي" إلا بعد التأكيد.
+  let marketResearchCredit: number | null = null;
+  let marketResearchResults: MarketResearchResults | null = null;
+  let canAdvance = !isMarketResearchStage;
+
+  if (isMarketResearchStage) {
+    [marketResearchCredit, marketResearchResults] = await Promise.all([
+      getMarketResearchCredit(session.user.id),
+      getMarketResearchResults(session.user.id),
+    ]);
+    canAdvance = marketResearchResults?.confirmed === true;
+  }
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center">
@@ -27,19 +50,25 @@ export default async function GamePage() {
       <h1 className="text-2xl font-semibold">{stage.title}</h1>
       <p className="max-w-md text-sm text-zinc-500">{stage.description}</p>
 
+      {isMarketResearchStage && marketResearchCredit !== null && (
+        <MarketResearchStage credit={marketResearchCredit} results={marketResearchResults} />
+      )}
+
       {isLastStage ? (
         <p className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium dark:bg-zinc-900">
           انتهت الجولة 🎉
         </p>
       ) : (
-        <form action={advanceStage}>
-          <button
-            type="submit"
-            className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
-          >
-            التالي
-          </button>
-        </form>
+        canAdvance && (
+          <form action={advanceStage}>
+            <button
+              type="submit"
+              className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
+            >
+              التالي
+            </button>
+          </form>
+        )
       )}
 
       <form action={restartGame}>

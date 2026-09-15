@@ -1,5 +1,6 @@
 import "server-only";
 import { neon } from "@neondatabase/serverless";
+import { MARKET_RESEARCH_TOTAL_CREDIT, type MarketResearchResults } from "@/lib/market-research";
 
 if (!process.env.DATABASE_URL) {
   // Thrown lazily at request time (not at import time) would be nicer, but since
@@ -77,6 +78,72 @@ export async function setCurrentStage(userId: string, stage: number): Promise<vo
   await sql`
     UPDATE game_state
     SET data = jsonb_set(data, '{currentStage}', to_jsonb(${stage}::int)),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// مرحلة "دراسة السوق" (مرحلة 2) — كريديت منفصل + نتائج القنوات.
+// ---------------------------------------------------------------------------
+
+/**
+ * يرجّع رصيد كريديت دراسة السوق. أول زيارة لهالمرحلة بيهيّئه بـ30,000
+ * ويخزّنه فوراً بقاعدة البيانات (مو بس بالذاكرة) — حتى يضل ثابت لو
+ * المستخدم رجع لاحقاً، ومنفصل تماماً عن أي رصيد رأس مال أساسي لاحق.
+ */
+export async function getMarketResearchCredit(userId: string): Promise<number> {
+  const rows = await sql`
+    SELECT (data->>'marketResearchCredit')::int AS credit
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const credit = rows[0]?.credit;
+  if (typeof credit === "number") return credit;
+
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(data, '{marketResearchCredit}', to_jsonb(${MARKET_RESEARCH_TOTAL_CREDIT}::int)),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+  return MARKET_RESEARCH_TOTAL_CREDIT;
+}
+
+/** يرجّع نتائج دراسة السوق المحفوظة، أو null لو اللاعب لسا ما أكّد توزيعه. */
+export async function getMarketResearchResults(
+  userId: string
+): Promise<MarketResearchResults | null> {
+  const rows = await sql`
+    SELECT data->'marketResearchResults' AS results
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.results as MarketResearchResults | null) ?? null;
+}
+
+/** يخزّن نتائج دراسة السوق بعد التأكيد — مرة وحدة، بعدها القراءة بس (مو إعادة حساب). */
+export async function saveMarketResearchResults(
+  userId: string,
+  results: MarketResearchResults
+): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(data, '{marketResearchResults}', ${JSON.stringify(results)}::jsonb),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/**
+ * يمسح كريديت ونتائج دراسة السوق بالكامل (مو بس يصفّرهم رقمياً) — تُستخدم
+ * مع "إعادة البدء" حتى تنرجع هالمرحلة لحالتها الأولى (كريديت 30,000 من
+ * جديد، بدون نتائج محفوظة) بمرة الوصول الجاية.
+ */
+export async function resetMarketResearch(userId: string): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = data - 'marketResearchCredit' - 'marketResearchResults',
         updated_at = now()
     WHERE user_id = ${userId}
   `;
