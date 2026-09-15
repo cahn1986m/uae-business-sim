@@ -9,8 +9,12 @@
  * الأصلي بـroadmap.md.
  */
 
-/** الحد الأقصى للصرف بهالمرحلة — منفصل تماماً عن أي رأس مال أساسي لاحق. */
-export const MARKET_RESEARCH_TOTAL_CREDIT = 30000;
+/**
+ * الحد الأقصى للصرف بهالمرحلة — منفصل تماماً عن أي رأس مال أساسي لاحق.
+ * عمداً أقل من مجموع الأربعة خدمات كلهم مع بعض (19,500) — اللاعب مضطر
+ * فعلياً يضحّي ويختار جزء بس، ما يقدر يشتري كل شي.
+ */
+export const MARKET_RESEARCH_TOTAL_CREDIT = 15000;
 
 export type MarketResearchServiceKey =
   | "feasibility"
