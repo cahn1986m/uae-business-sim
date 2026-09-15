@@ -16,6 +16,11 @@ import {
   getLicensingResult,
   applyLicensingDecision,
   resetLicensing,
+  getRentNegotiation,
+  saveRentNegotiation,
+  getRentResult,
+  applyRentDecision,
+  resetRent,
 } from "@/lib/db";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
@@ -36,10 +41,18 @@ import {
   type LicensingPath,
   type LicensingResult,
 } from "@/lib/licensing";
+import {
+  getRentOption,
+  rollMissingServiceSurprises,
+  MISSING_SERVICES_TOTAL,
+  type NegotiationResult,
+  type RentResult,
+} from "@/lib/rent";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
 const FINANCING_STAGE_ID = 3;
 const LICENSING_STAGE_ID = 4;
+const RENT_STAGE_ID = 5;
 
 async function requireUserId(): Promise<string> {
   const { data: session } = await auth.getSession();
@@ -79,6 +92,13 @@ export async function advanceStage() {
     }
   }
 
+  if (current === RENT_STAGE_ID) {
+    const result = await getRentResult(userId);
+    if (result === null) {
+      throw new Error("لازم تأكّد خيار إيجار ودفع قبل ما تكمّل.");
+    }
+  }
+
   const next = Math.min(current + 1, TOTAL_STAGES);
   await setCurrentStage(userId, next);
   revalidatePath("/game");
@@ -86,8 +106,8 @@ export async function advanceStage() {
 
 /**
  * إعادة البدء — يرجّع currentStage لـ1، وكمان يمسح تقدّم دراسة السوق
- * وقرار التمويل حتى تكون كل مرحلة جاهزة من الصفر بالجولة الجاية.
- * للتجربة أثناء البناء فقط.
+ * وقرار التمويل والترخيص والإيجار حتى تكون كل مرحلة جاهزة من الصفر
+ * بالجولة الجاية. للتجربة أثناء البناء فقط.
  */
 export async function restartGame() {
   const userId = await requireUserId();
@@ -95,6 +115,7 @@ export async function restartGame() {
   await resetMarketResearch(userId);
   await resetFinancingDecision(userId);
   await resetLicensing(userId);
+  await resetRent(userId);
   revalidatePath("/game");
 }
 
@@ -276,6 +297,147 @@ export async function confirmLicensingDecision(
   };
 
   await applyLicensingDecision(userId, { path: "self", cost: totalCost, days: totalDays, result });
+  revalidatePath("/game");
+  return null;
+}
+
+export type NegotiationFormState = { success: boolean; discountPercent: number } | { error: string } | null;
+
+/**
+ * التفاوض — زر منفصل، اختياري، قبل التأكيد النهائي فقط. "يُستهلك"
+ * فعلياً سيرفر-سايد (مو بس بتعطيل الزر بالواجهة): لو فيه نتيجة
+ * محفوظة أصلاً، برجّعها كما هي بدل ما يرمي نرد جديد. 60% نجاح؛ لو نجح
+ * مع licensingPath="agency" الخصم يصير 20% بدل 10%، ويتخزّن علمين
+ * إضافيين لمراحل لاحقة.
+ */
+export async function negotiateRentPrice(
+  _prevState: NegotiationFormState
+): Promise<NegotiationFormState> {
+  const userId = await requireUserId();
+
+  const existingResult = await getRentResult(userId);
+  if (existingResult) {
+    return { error: "قرار الإيجار مؤكّد أصلاً." };
+  }
+
+  const existingNegotiation = await getRentNegotiation(userId);
+  if (existingNegotiation) {
+    return { success: existingNegotiation.success, discountPercent: existingNegotiation.discountPercent };
+  }
+
+  const success = Math.random() < 0.6;
+  let discountPercent = 0;
+  const extraFlags: Record<string, unknown> = {};
+
+  if (success) {
+    discountPercent = 10;
+    const licensingResult = await getLicensingResult(userId);
+    if (licensingResult?.path === "agency") {
+      discountPercent = 20;
+      extraFlags.freeSetupDays = 15;
+      extraFlags.wasteRemovalIncluded = true;
+    }
+  }
+
+  const negotiation: NegotiationResult = { used: true, success, discountPercent };
+  await saveRentNegotiation(userId, negotiation, extraFlags);
+  revalidatePath("/game");
+  return { success, discountPercent };
+}
+
+export type RentFormState = { error: string } | null;
+
+/**
+ * يحسب السعر النهائي (الإيجار الأساسي + 6,000 لو شاف تفاصيل خيار فاضٍ
+ * + خصم التفاوض المحفوظ إن وُجد)، يحدّد الدفعة المطلوبة الآن حسب طريقة
+ * الدفع، يرفض سيرفر-سايد لو أكبر من currentCapital، وإلا يخصم، يضيف
+ * قسط شهري لو تقسيط، ويرمي مفاجآت النواقص العشوائية (مرة وحدة) لو
+ * الخيار فاضٍ وما انشافت تفاصيله قبل التأكيد.
+ */
+export async function confirmRentDecision(
+  _prevState: RentFormState,
+  formData: FormData
+): Promise<RentFormState> {
+  const userId = await requireUserId();
+
+  const rentId = String(formData.get("rentId") ?? "");
+  const option = getRentOption(rentId);
+  if (!option) {
+    return { error: "لازم تختار خيار إيجار." };
+  }
+
+  const paymentMethod = String(formData.get("paymentMethod") ?? "");
+  if (paymentMethod !== "cash" && paymentMethod !== "installments") {
+    return { error: "لازم تختار طريقة دفع." };
+  }
+
+  const viewedDetails = formData.get("viewedDetails") === "true";
+
+  const negotiation = await getRentNegotiation(userId);
+  const discountPercent = negotiation?.success ? negotiation.discountPercent : 0;
+
+  const displayedPrice =
+    option.annualRent + (!option.hasFullServices && viewedDetails ? MISSING_SERVICES_TOTAL : 0);
+  const finalPrice = Math.round(displayedPrice * (1 - discountPercent / 100));
+
+  let amountPaidNow: number;
+  let monthlyAmount: number | undefined;
+  if (paymentMethod === "cash") {
+    amountPaidNow = finalPrice;
+  } else {
+    amountPaidNow = Math.round(finalPrice * 0.2);
+    const remainingWithPremium = finalPrice * 0.8 * 1.15;
+    monthlyAmount = Math.round(remainingWithPremium / 12);
+  }
+
+  const currentCapital = await getCurrentCapital(userId);
+  if (amountPaidNow > currentCapital) {
+    return {
+      error: `الدفعة المطلوبة (${amountPaidNow.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+    };
+  }
+
+  let surpriseEvents: RentResult["surpriseEvents"];
+  let totalSurpriseCost = 0;
+  if (!option.hasFullServices && !viewedDetails) {
+    surpriseEvents = rollMissingServiceSurprises();
+    totalSurpriseCost = surpriseEvents.reduce((sum, e) => sum + e.cost, 0);
+  }
+
+  const result: RentResult = {
+    confirmed: true,
+    decidedAt: new Date().toISOString(),
+    rentId: option.id,
+    spaceSize: option.spaceSize,
+    basePrice: option.annualRent,
+    viewedDetailsBeforeConfirm: viewedDetails,
+    negotiationUsed: negotiation?.used === true,
+    negotiationSuccess: negotiation?.success,
+    discountPercent,
+    finalPrice,
+    paymentMethod,
+    amountPaidNow,
+    ...(monthlyAmount !== undefined ? { monthlyAmount } : {}),
+    ...(surpriseEvents ? { surpriseEvents } : {}),
+    totalSurpriseCost,
+  };
+
+  const staticFields: Record<string, unknown> = {
+    rentChoice: option.id,
+    rentSpaceSize: option.spaceSize,
+    rentResult: result,
+  };
+  if (option.primeLocation) {
+    staticFields.primeLocation = true;
+  }
+
+  await applyRentDecision(userId, {
+    totalDeduction: amountPaidNow + totalSurpriseCost,
+    monthlyObligation:
+      paymentMethod === "installments" ? { type: "rent", monthlyAmount: monthlyAmount! } : null,
+    staticFields,
+  });
+
   revalidatePath("/game");
   return null;
 }

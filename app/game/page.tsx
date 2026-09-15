@@ -8,15 +8,19 @@ import {
   getDaysConsumed,
   getCurrentCapital,
   getLicensingResult,
+  getRentNegotiation,
+  getRentResult,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
 import type { LicensingResult } from "@/lib/licensing";
+import type { NegotiationResult, RentResult } from "@/lib/rent";
 import { advanceStage, restartGame } from "./actions";
 import MarketResearchStage from "./MarketResearchStage";
 import FinancingStage from "./FinancingStage";
 import FinancingCountdown from "./FinancingCountdown";
 import LicensingStage from "./LicensingStage";
+import RentStage from "./RentStage";
 
 // المرحلة الحالية تُقرا من قاعدة البيانات بكل مرة — لازم رندر ديناميكي.
 export const dynamic = "force-dynamic";
@@ -24,6 +28,7 @@ export const dynamic = "force-dynamic";
 const MARKET_RESEARCH_STAGE_ID = 2;
 const FINANCING_STAGE_ID = 3;
 const LICENSING_STAGE_ID = 4;
+const RENT_STAGE_ID = 5;
 
 export default async function GamePage() {
   const { data: session } = await auth.getSession();
@@ -38,6 +43,7 @@ export default async function GamePage() {
   const isMarketResearchStage = currentStage === MARKET_RESEARCH_STAGE_ID;
   const isFinancingStage = currentStage === FINANCING_STAGE_ID;
   const isLicensingStage = currentStage === LICENSING_STAGE_ID;
+  const isRentStage = currentStage === RENT_STAGE_ID;
 
   // عرض مهلة الأداء (بعد ما يتأكّد قرار التمويل) لازم يظهر بكل شاشات
   // اللعبة التالية، مو بس مرحلة 3 — فبنجيبه دايماً بغض النظر شو المرحلة.
@@ -55,7 +61,10 @@ export default async function GamePage() {
   let marketResearchCredit: number | null = null;
   let marketResearchResults: MarketResearchResults | null = null;
   let licensingResult: LicensingResult | null = null;
-  let canAdvance = !isMarketResearchStage && !isFinancingStage && !isLicensingStage;
+  let rentNegotiation: NegotiationResult | null = null;
+  let rentResult: RentResult | null = null;
+  let canAdvance =
+    !isMarketResearchStage && !isFinancingStage && !isLicensingStage && !isRentStage;
 
   if (isMarketResearchStage) {
     [marketResearchCredit, marketResearchResults] = await Promise.all([
@@ -74,6 +83,14 @@ export default async function GamePage() {
     await getCurrentCapital(session.user.id);
     licensingResult = await getLicensingResult(session.user.id);
     canAdvance = licensingResult !== null;
+  }
+
+  if (isRentStage) {
+    [rentNegotiation, rentResult] = await Promise.all([
+      getRentNegotiation(session.user.id),
+      getRentResult(session.user.id),
+    ]);
+    canAdvance = rentResult !== null;
   }
 
   return (
@@ -99,6 +116,8 @@ export default async function GamePage() {
       {isFinancingStage && <FinancingStage decision={financingDecision} />}
 
       {isLicensingStage && <LicensingStage result={licensingResult} />}
+
+      {isRentStage && <RentStage negotiation={rentNegotiation} result={rentResult} />}
 
       {isLastStage ? (
         <p className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium dark:bg-zinc-900">

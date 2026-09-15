@@ -3,6 +3,7 @@ import { neon } from "@neondatabase/serverless";
 import { MARKET_RESEARCH_TOTAL_CREDIT, type MarketResearchResults } from "@/lib/market-research";
 import type { FinancingDecision } from "@/lib/financing";
 import type { LicensingPath, LicensingResult } from "@/lib/licensing";
+import type { NegotiationResult, RentResult } from "@/lib/rent";
 
 if (!process.env.DATABASE_URL) {
   // Thrown lazily at request time (not at import time) would be nicer, but since
@@ -320,6 +321,102 @@ export async function resetLicensing(userId: string): Promise<void> {
   await sql`
     UPDATE game_state
     SET data = data - 'currentCapital' - 'licensingPath' - 'licensingResult',
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// مرحلة "الإيجار" (مرحلة 5، الجزء أ) — اختيار مكان + تفاوض + دفع.
+// ---------------------------------------------------------------------------
+
+/** نتيجة التفاوض المؤقتة (قبل التأكيد النهائي) — null لو اللاعب لسا ما فاوض. */
+export async function getRentNegotiation(userId: string): Promise<NegotiationResult | null> {
+  const rows = await sql`
+    SELECT data->'rentNegotiation' AS negotiation
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.negotiation as NegotiationResult | null) ?? null;
+}
+
+/**
+ * يخزّن نتيجة التفاوض (مرة وحدة — الزر "يُستهلك" فعلياً هون سيرفر-سايد،
+ * مو بس بتعطيل الزر بالواجهة). لو نجح مع licensingPath="agency"، أضف
+ * extraFlags (freeSetupDays, wasteRemovalIncluded) بنفس الاستدعاء.
+ */
+export async function saveRentNegotiation(
+  userId: string,
+  negotiation: NegotiationResult,
+  extraFlags: Record<string, unknown> = {}
+): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = data || ${JSON.stringify({ rentNegotiation: negotiation, ...extraFlags })}::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/** يرجّع قرار الإيجار النهائي المحفوظ، أو null لو اللاعب لسا ما أكّد. */
+export async function getRentResult(userId: string): Promise<RentResult | null> {
+  const rows = await sql`
+    SELECT data->'rentResult' AS result
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.result as RentResult | null) ?? null;
+}
+
+/**
+ * يخصم (الدفعة الآن + أي مفاجأة نواقص) من currentCapital، يضيف قسط
+ * الإيجار الشهري لـmonthlyObligations لو تقسيط، يخزّن rentChoice/
+ * rentSpaceSize/rentResult (وprimeLocation إن كان الخيار مميز)، ويمسح
+ * rentNegotiation المؤقتة — كل شي بضربة UPDATE وحدة (atomic).
+ */
+export async function applyRentDecision(
+  userId: string,
+  params: {
+    totalDeduction: number;
+    monthlyObligation: { type: "rent"; monthlyAmount: number } | null;
+    staticFields: Record<string, unknown>;
+  }
+): Promise<void> {
+  const monthlyObligationJson = params.monthlyObligation ? JSON.stringify([params.monthlyObligation]) : "[]";
+
+  await sql`
+    UPDATE game_state
+    SET data = (
+          jsonb_set(
+            jsonb_set(
+              data - 'rentNegotiation',
+              '{currentCapital}',
+              to_jsonb(
+                COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+                - ${params.totalDeduction}::int
+              )
+            ),
+            '{monthlyObligations}',
+            COALESCE(data->'monthlyObligations', '[]'::jsonb) || ${monthlyObligationJson}::jsonb
+          )
+        ) || ${JSON.stringify(params.staticFields)}::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/**
+ * يمسح كل حقول الإيجار (الاختيار، النتيجة، التفاوض المؤقت، العلمين
+ * الخاصين بمرحلة البيع/الإيجار اللاحقة) — تُستخدم مع "إعادة البدء".
+ * currentCapital نفسه بينمسح من resetLicensing، ومنعيد تصفير
+ * monthlyObligations بالكامل هون (مو بس عنصر الإيجار منها).
+ */
+export async function resetRent(userId: string): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = data - 'rentChoice' - 'rentSpaceSize' - 'rentResult' - 'rentNegotiation'
+                     - 'primeLocation' - 'freeSetupDays' - 'wasteRemovalIncluded'
+                     - 'monthlyObligations',
         updated_at = now()
     WHERE user_id = ${userId}
   `;

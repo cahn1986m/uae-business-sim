@@ -13,6 +13,18 @@ const eslintConfig = defineConfig([
     "build/**",
     "next-env.d.ts",
   ]),
+  {
+    rules: {
+      // Server Actions bound to useActionState always receive (prevState, formData)
+      // even when a given action doesn't need one of them — allow a leading
+      // underscore to mark that intentionally, instead of forcing unused params
+      // to stay in the signature just to dodge this rule.
+      "@typescript-eslint/no-unused-vars": [
+        "warn",
+        { argsIgnorePattern: "^_", varsIgnorePattern: "^_" },
+      ],
+    },
+  },
 ]);
 
 export default eslintConfig;
