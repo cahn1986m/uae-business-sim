@@ -196,13 +196,49 @@ export async function saveFinancingDecision(
   `;
 }
 
-/** يمسح الأربعة حقول بالكامل — تُستخدم مع "إعادة البدء". */
+/** يمسح الحقول الخمسة بالكامل (التمويل + daysConsumed) — تُستخدم مع "إعادة البدء". */
 export async function resetFinancingDecision(userId: string): Promise<void> {
   await sql`
     UPDATE game_state
     SET data = data - 'startingCapital' - 'investorEquityPercent'
-                     - 'financingStartedAt' - 'financingDeadlineDays',
+                     - 'financingStartedAt' - 'financingDeadlineDays'
+                     - 'daysConsumed',
         updated_at = now()
     WHERE user_id = ${userId}
   `;
+}
+
+/**
+ * "الأيام" هون مو وقت حقيقي — هي مفهوم محاكاة (simulated) بيتقدّم بس
+ * لما منطق لعبة فعلي يستدعي consumeGameDays (لسا ما في أي مرحلة
+ * بتستدعيها — بنية جاهزة لمراحل لاحقة). يبدأ 0 لو مش موجود بعد.
+ */
+export async function getDaysConsumed(userId: string): Promise<number> {
+  const rows = await sql`
+    SELECT (data->>'daysConsumed')::int AS days_consumed
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const value = rows[0]?.days_consumed;
+  return typeof value === "number" ? value : 0;
+}
+
+/**
+ * يزيد daysConsumed بعدد الأيام المعطى (مجمّع مع أي قيمة سابقة، مو
+ * استبدال). المصدر الوحيد يلي المفروض يغيّر daysConsumed — أي مكان
+ * تاني بيقرا بس.
+ */
+export async function consumeGameDays(userId: string, days: number): Promise<number> {
+  const rows = await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          data,
+          '{daysConsumed}',
+          to_jsonb(COALESCE((data->>'daysConsumed')::int, 0) + ${days}::int)
+        ),
+        updated_at = now()
+    WHERE user_id = ${userId}
+    RETURNING (data->>'daysConsumed')::int AS days_consumed
+  `;
+  return rows[0]?.days_consumed ?? days;
 }

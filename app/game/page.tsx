@@ -5,6 +5,7 @@ import {
   getMarketResearchCredit,
   getMarketResearchResults,
   getFinancingDecision,
+  getDaysConsumed,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
@@ -32,9 +33,15 @@ export default async function GamePage() {
   const isMarketResearchStage = currentStage === MARKET_RESEARCH_STAGE_ID;
   const isFinancingStage = currentStage === FINANCING_STAGE_ID;
 
-  // العداد التنازلي (بعد ما يتأكّد قرار التمويل) لازم يظهر بكل شاشات
+  // عرض مهلة الأداء (بعد ما يتأكّد قرار التمويل) لازم يظهر بكل شاشات
   // اللعبة التالية، مو بس مرحلة 3 — فبنجيبه دايماً بغض النظر شو المرحلة.
+  // الرقم محاكاة (daysConsumed) مو وقت حقيقي — ثابت لحد ما يتغيّر
+  // daysConsumed فعلياً بقاعدة البيانات.
   const financingDecision = await getFinancingDecision(session.user.id);
+  const daysConsumed = financingDecision ? await getDaysConsumed(session.user.id) : 0;
+  const remainingDays = financingDecision
+    ? Math.max(financingDecision.financingDeadlineDays - daysConsumed, 0)
+    : null;
 
   // بمرحلة دراسة السوق تحديداً: لازم اللاعب يأكّد قرار الشراء (حتى لو
   // قرار "ما بشتري شي") قبل ما يقدر يكمّل — ما بنعرض زر "التالي" إلا
@@ -57,10 +64,10 @@ export default async function GamePage() {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center">
-      {financingDecision && (
+      {financingDecision && remainingDays !== null && (
         <FinancingCountdown
-          startedAt={financingDecision.financingStartedAt}
-          deadlineDays={financingDecision.financingDeadlineDays}
+          remainingDays={remainingDays}
+          totalDays={financingDecision.financingDeadlineDays}
         />
       )}
 
