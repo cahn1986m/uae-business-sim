@@ -21,6 +21,7 @@ import {
   applyLocationBonusIfNeeded,
   getSalesEmployeeHired,
   getAdCampaigns,
+  getPendingReceivables,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
@@ -90,6 +91,14 @@ export default async function GamePage() {
     ? Math.max(financingDecision.financingDeadlineDays - daysConsumed, 0)
     : null;
   const isOverdue = financingDecision ? daysConsumed > financingDecision.financingDeadlineDays : false;
+
+  // مبالغ معلّقة (تسهيلات تجار الجملة، الجزء ج) — تُجمع وتُعرض بالشريط
+  // الدائم مهما كانت المرحلة الحالية، بنفس منطق currentCapital/الأيام
+  // فوق؛ بترجع [] طبيعياً بالمراحل يلي قبل البيع.
+  const pendingReceivables = financingDecision ? await getPendingReceivables(session.user.id) : [];
+  const pendingReceivablesTotal = pendingReceivables
+    .filter((r) => !r.collected)
+    .reduce((sum, r) => sum + r.amount, 0);
 
   // بمرحلة دراسة السوق تحديداً: لازم اللاعب يأكّد قرار الشراء (حتى لو
   // قرار "ما بشتري شي") قبل ما يقدر يكمّل — ما بنعرض زر "التالي" إلا
@@ -215,6 +224,7 @@ export default async function GamePage() {
           currentCapital={currentCapitalForHud}
           isOverdue={isOverdue}
           investorEquityPercent={financingDecision.investorEquityPercent}
+          pendingReceivablesTotal={pendingReceivablesTotal}
         />
       )}
 

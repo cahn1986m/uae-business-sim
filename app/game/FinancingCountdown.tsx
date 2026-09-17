@@ -22,12 +22,14 @@ export default function FinancingCountdown({
   currentCapital,
   isOverdue,
   investorEquityPercent,
+  pendingReceivablesTotal,
 }: {
   remainingDays: number;
   totalDays: number;
   currentCapital: number;
   isOverdue: boolean;
   investorEquityPercent: number;
+  pendingReceivablesTotal?: number;
 }) {
   const pressureMessage = INVESTOR_PRESSURE_MESSAGES[investorEquityPercent];
 
@@ -51,6 +53,12 @@ export default function FinancingCountdown({
           </span>
         </span>
       </div>
+      {!!pendingReceivablesTotal && pendingReceivablesTotal > 0 && (
+        <span className="flex items-center gap-1 text-xs">
+          <span aria-hidden="true">💵</span>
+          <span>مبالغ معلّقة: {pendingReceivablesTotal.toLocaleString("ar")} درهم</span>
+        </span>
+      )}
       {isOverdue && pressureMessage && <p className="text-xs">{pressureMessage}</p>}
     </div>
   );

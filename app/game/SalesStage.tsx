@@ -15,14 +15,18 @@ import {
   SALES_EMPLOYEE_COMMISSION_RATE,
   AD_TARGET_LABELS,
   AD_BUDGET_MINIMUM,
+  WHOLESALE_PAYMENT_LABELS,
+  WHOLESALE_PAYMENT_MARGIN,
   type SalesChannel,
   type LocationBonusResult,
   type AdCampaign,
   type AdTarget,
+  type WholesalePaymentMethod,
 } from "@/lib/sales";
 
 const CHANNELS: SalesChannel[] = ["discount-market", "wholesaler", "boutique-trader"];
 const AD_TARGETS: AdTarget[] = ["premium", "wholesale", "discount"];
+const WHOLESALE_PAYMENT_METHODS: WholesalePaymentMethod[] = ["cash", "credit-30", "credit-60", "credit-90"];
 
 /**
  * واجهة مرحلة "البيع" — الجزء أ (بيع يدوي متكرر) + الجزء ب (مصادر
@@ -119,6 +123,7 @@ function SaleForm({
 
   const [channel, setChannel] = useState<SalesChannel | "">("");
   const [unitsSold, setUnitsSold] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<WholesalePaymentMethod>("cash");
 
   const availableForChannel = (c: SalesChannel) =>
     c === "boutique-trader" ? availableSmallUnits : availableLargeUnits;
@@ -131,6 +136,9 @@ function SaleForm({
         <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
           بيع ناجح: {state.unitsSold.toLocaleString("ar")} وحدة عبر {CHANNEL_LABELS[state.channel]} — إيراد إجمالي{" "}
           {state.totalRevenue.toLocaleString("ar")} درهم
+          {state.deferred
+            ? ` — مؤجل التحصيل (${WHOLESALE_PAYMENT_LABELS[state.paymentMethod]}), ما انضاف لرأس المال بعد`
+            : ""}
         </p>
       )}
 
@@ -169,6 +177,28 @@ function SaleForm({
           );
         })}
       </div>
+
+      {channel === "wholesaler" && (
+        <div className="space-y-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
+          <p className="text-sm font-medium">طريقة الدفع (تسهيلات تجار الجملة)</p>
+          {WHOLESALE_PAYMENT_METHODS.map((m) => (
+            <label key={m} htmlFor={`payment_${m}`} className="flex items-center justify-between text-sm">
+              <span>
+                {WHOLESALE_PAYMENT_LABELS[m]} — هامش {Math.round(WHOLESALE_PAYMENT_MARGIN[m] * 100)}%
+              </span>
+              <input
+                id={`payment_${m}`}
+                name="paymentMethod"
+                value={m}
+                type="radio"
+                checked={paymentMethod === m}
+                onChange={() => setPaymentMethod(m)}
+                className="h-4 w-4"
+              />
+            </label>
+          ))}
+        </div>
+      )}
 
       <div>
         <label htmlFor="unitsSold" className="mb-2 block text-sm font-medium">

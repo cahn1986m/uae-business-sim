@@ -35,9 +35,11 @@ import {
   applyProductionCycle,
   resetProduction,
   consumeGameDays,
+  getDaysConsumed,
   getSalesTransactions,
   getSaleUnitCost,
   applySaleTransaction,
+  applyCreditSaleTransaction,
   resetSales,
   getBonusUnits,
   getSalesEmployeeHired,
@@ -96,14 +98,18 @@ import {
 import {
   computeUnitCost,
   getRevenuePerUnit,
+  getMarginForSale,
   getAvailableUnits,
   isBoutiqueTraderUnlocked,
   applyCommission,
   getAdCampaignBonusUnits,
   rollAdCampaignChannel,
   AD_BUDGET_MINIMUM,
+  WHOLESALE_CREDIT_DAYS,
   type SalesChannel,
   type SalesTransaction,
+  type PendingReceivable,
+  type WholesalePaymentMethod,
   type AdTarget,
   type AdCampaign,
 } from "@/lib/sales";
@@ -898,7 +904,14 @@ export async function confirmProductionPurchase(
 
 export type SalesFormState =
   | { error: string }
-  | { unitsSold: number; revenuePerUnit: number; totalRevenue: number; channel: SalesChannel }
+  | {
+      unitsSold: number;
+      revenuePerUnit: number;
+      totalRevenue: number;
+      channel: SalesChannel;
+      paymentMethod: WholesalePaymentMethod;
+      deferred: boolean;
+    }
   | null;
 
 /**
@@ -912,9 +925,13 @@ export type SalesFormState =
  * (computeUnitCost) تُحسب وتُخزَّن (saleUnitCost) مرة وحدة بس عند أول
  * عملية بيع. لو موظف المبيعات موظّف: عمولته 8% تُخصم من الإيراد الخام
  * قبل ما يصير totalRevenue النهائي (applyCommission) — نفس القيمة
- * المضافة فعلياً لـcurrentCapital والمخزّنة بسجل العملية. عند التأكيد:
- * يضيف totalRevenue فوراً لـcurrentCapital ويضيف عملية بيع جديدة
- * لـsalesTransactions.
+ * المضافة فعلياً لـcurrentCapital (فوراً أو لاحقاً) والمخزّنة بسجل
+ * العملية. "تجار جملة" بس عندها خيار طريقة دفع (paymentMethod): كاش
+ * فوري (سلوك الجزء أ الأصلي، بدون تغيير) أو تسهيلات 30/60/90 يوم
+ * (هامش أعلى، لكن totalRevenue ما يُضاف لـcurrentCapital فوراً — يُسجَّل
+ * كـpendingReceivable بيتحصَّل تلقائياً جوا consumeGameDays نفسه لما
+ * daysConsumed يوصل dueAtDaysConsumed). القناتين التانيتين كاش فوري
+ * فقط دايماً — أي paymentMethod مُرسَل من الواجهة يُتجاهَل لهم بالكامل.
  */
 export async function confirmSaleTransaction(
   _prevState: SalesFormState,
@@ -937,6 +954,20 @@ export async function confirmSaleTransaction(
     unitsSold < 1
   ) {
     return { error: "الكمية لازم تكون رقم صحيح 1 أو أكثر." };
+  }
+
+  let paymentMethod: WholesalePaymentMethod = "cash";
+  if (channel === "wholesaler") {
+    const rawPaymentMethod = String(formData.get("paymentMethod") ?? "");
+    if (
+      rawPaymentMethod !== "cash" &&
+      rawPaymentMethod !== "credit-30" &&
+      rawPaymentMethod !== "credit-60" &&
+      rawPaymentMethod !== "credit-90"
+    ) {
+      return { error: "لازم تختار طريقة دفع لقناة تجار الجملة." };
+    }
+    paymentMethod = rawPaymentMethod;
   }
 
   const cycles = await getProductionCycles(userId);
@@ -969,7 +1000,8 @@ export async function confirmSaleTransaction(
     staticFields.saleUnitCost = unitCost;
   }
 
-  const revenuePerUnit = getRevenuePerUnit(unitCost, channel);
+  const marginRate = getMarginForSale(channel, paymentMethod);
+  const revenuePerUnit = getRevenuePerUnit(unitCost, marginRate);
   const grossRevenue = unitsSold * revenuePerUnit;
   const totalRevenue = applyCommission(grossRevenue, salesEmployeeHired);
 
@@ -981,9 +1013,23 @@ export async function confirmSaleTransaction(
     totalRevenue,
   };
 
-  await applySaleTransaction(userId, { totalRevenue, newTransaction, staticFields });
+  const deferred = channel === "wholesaler" && paymentMethod !== "cash";
+
+  if (deferred) {
+    const currentDaysConsumed = await getDaysConsumed(userId);
+    const newReceivable: PendingReceivable = {
+      transactionNumber: newTransaction.transactionNumber,
+      dueAtDaysConsumed: currentDaysConsumed + WHOLESALE_CREDIT_DAYS[paymentMethod as Exclude<WholesalePaymentMethod, "cash">],
+      amount: totalRevenue,
+      collected: false,
+    };
+    await applyCreditSaleTransaction(userId, { newTransaction, newReceivable, staticFields });
+  } else {
+    await applySaleTransaction(userId, { totalRevenue, newTransaction, staticFields });
+  }
+
   revalidatePath("/game");
-  return { unitsSold, revenuePerUnit, totalRevenue, channel };
+  return { unitsSold, revenuePerUnit, totalRevenue, channel, paymentMethod, deferred };
 }
 
 /**

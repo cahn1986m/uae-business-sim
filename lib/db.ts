@@ -14,6 +14,7 @@ import {
   type AdCampaign,
   type LocationBonusResult,
   type SalesTransaction,
+  type PendingReceivable,
 } from "@/lib/sales";
 
 if (!process.env.DATABASE_URL) {
@@ -239,21 +240,68 @@ export async function getDaysConsumed(userId: string): Promise<number> {
 /**
  * يزيد daysConsumed بعدد الأيام المعطى (مجمّع مع أي قيمة سابقة، مو
  * استبدال). المصدر الوحيد يلي المفروض يغيّر daysConsumed — أي مكان
- * تاني بيقرا بس.
+ * تاني بيقرا بس. بعد التحديث: يفحص pendingReceivables (تسهيلات تجار
+ * الجملة، مرحلة البيع الجزء ج) — أي عنصر collected=false ووصل
+ * dueAtDaysConsumed <= daysConsumed الجديد يتحصَّل تلقائياً هون (يُضاف
+ * amount لـcurrentCapital وcollected يصير true)، بخطوة واحدة ذرية، بدون
+ * أي فعل إضافي من اللاعب. هاي نفس الدالة المشتركة لكل الاستدعاءات
+ * (إيجار/معدات/إنتاج ولاحقاً) — ما في نسخة منفصلة للتحصيل.
  */
 export async function consumeGameDays(userId: string, days: number): Promise<number> {
   const rows = await sql`
+    SELECT
+      (data->>'daysConsumed')::int AS days_consumed,
+      data->'pendingReceivables' AS pending_receivables
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const row = rows[0];
+  const currentDaysConsumed = typeof row?.days_consumed === "number" ? row.days_consumed : 0;
+  const newDaysConsumed = currentDaysConsumed + days;
+
+  const pendingReceivables = (row?.pending_receivables as PendingReceivable[] | null) ?? [];
+  let collectedAmount = 0;
+  const updatedReceivables = pendingReceivables.map((r) => {
+    if (!r.collected && r.dueAtDaysConsumed <= newDaysConsumed) {
+      collectedAmount += r.amount;
+      return { ...r, collected: true };
+    }
+    return r;
+  });
+
+  const updateRows = await sql`
     UPDATE game_state
     SET data = jsonb_set(
-          data,
-          '{daysConsumed}',
-          to_jsonb(COALESCE((data->>'daysConsumed')::int, 0) + ${days}::int)
+          jsonb_set(
+            jsonb_set(
+              data,
+              '{daysConsumed}',
+              to_jsonb(${newDaysConsumed}::int)
+            ),
+            '{pendingReceivables}',
+            ${JSON.stringify(updatedReceivables)}::jsonb
+          ),
+          '{currentCapital}',
+          to_jsonb(
+            COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+            + ${collectedAmount}::int
+          )
         ),
         updated_at = now()
     WHERE user_id = ${userId}
     RETURNING (data->>'daysConsumed')::int AS days_consumed
   `;
-  return rows[0]?.days_consumed ?? days;
+  return updateRows[0]?.days_consumed ?? newDaysConsumed;
+}
+
+/** يرجّع pendingReceivables الحالية (تسهيلات تجار الجملة) — [] لو ما في. */
+export async function getPendingReceivables(userId: string): Promise<PendingReceivable[]> {
+  const rows = await sql`
+    SELECT data->'pendingReceivables' AS pending_receivables
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.pending_receivables as PendingReceivable[] | null) ?? [];
 }
 
 // ---------------------------------------------------------------------------
@@ -761,6 +809,37 @@ export async function applySaleTransaction(
   `;
 }
 
+/**
+ * بيع بتسهيلات (تسهيلات تجار الجملة، الجزء ج) — يضيف عملية البيع
+ * لـsalesTransactions وعنصر جديد لـpendingReceivables، لكن **لا يلمس
+ * currentCapital إطلاقاً** (التحصيل بيصير لاحقاً تلقائياً جوا
+ * consumeGameDays لما dueAtDaysConsumed يوصل). applySaleTransaction
+ * (الكاش الفوري) يبقى بدون أي تغيير — هاي دالة شقيقة منفصلة.
+ */
+export async function applyCreditSaleTransaction(
+  userId: string,
+  params: {
+    newTransaction: SalesTransaction;
+    newReceivable: PendingReceivable;
+    staticFields: Record<string, unknown>;
+  }
+): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          jsonb_set(
+            data,
+            '{salesTransactions}',
+            COALESCE(data->'salesTransactions', '[]'::jsonb) || ${JSON.stringify([params.newTransaction])}::jsonb
+          ),
+          '{pendingReceivables}',
+          COALESCE(data->'pendingReceivables', '[]'::jsonb) || ${JSON.stringify([params.newReceivable])}::jsonb
+        ) || ${JSON.stringify(params.staticFields)}::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
 // ---------------------------------------------------------------------------
 // مرحلة "البيع" (مرحلة 9، الجزء ب) — أثر الموقع، موظف مبيعات، إعلانات.
 // ---------------------------------------------------------------------------
@@ -961,11 +1040,11 @@ export async function applyAdCampaign(
 }
 
 /**
- * يصفّر salesTransactions/adCampaigns إلى [] (قيم صريحة، مو حذف)،
- * ويمسح الحقول الباقية المرتبطة (saleUnitCost، أثر الموقع، موظف
- * المبيعات، أرصدة البونص) — كلهم كاش/تقدّم مرتبط ببيانات إنتاج/تمويل
- * بتنمسح هي كمان بـ"إعادة البدء"، لازم يُعاد كل شي من الصفر بالجولة
- * الجاية. تُستخدم مع "إعادة البدء".
+ * يصفّر salesTransactions/adCampaigns/pendingReceivables إلى [] (قيم
+ * صريحة، مو حذف)، ويمسح الحقول الباقية المرتبطة (saleUnitCost، أثر
+ * الموقع، موظف المبيعات، أرصدة البونص) — كلهم كاش/تقدّم مرتبط ببيانات
+ * إنتاج/تمويل بتنمسح هي كمان بـ"إعادة البدء"، لازم يُعاد كل شي من
+ * الصفر بالجولة الجاية. تُستخدم مع "إعادة البدء".
  */
 export async function resetSales(userId: string): Promise<void> {
   await sql`
@@ -973,7 +1052,7 @@ export async function resetSales(userId: string): Promise<void> {
     SET data = (
           data - 'saleUnitCost' - 'locationBonusApplied' - 'locationBonusResults'
                - 'bonusSmallUnits' - 'bonusLargeUnits' - 'salesEmployeeHired'
-        ) || '{"salesTransactions": [], "adCampaigns": []}'::jsonb,
+        ) || '{"salesTransactions": [], "adCampaigns": [], "pendingReceivables": []}'::jsonb,
         updated_at = now()
     WHERE user_id = ${userId}
   `;

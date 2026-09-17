@@ -5,7 +5,8 @@ import type { HotelTier } from "@/lib/market-research";
  * مرحلة "البيع" (المرحلة 9). الجزء أ: بيع يدوي متكرر بثلاث قنوات.
  * الجزء ب: مصادر الزبائن — أثر الموقع (تلقائي مرة وحدة)، موظف مبيعات
  * (قرار توظيف مرة وحدة + عمولة مستمرة)، إعلانات (حملة متكررة). الجزء ج
- * (تسهيلات تجار الجملة) لسا ما اتبنى.
+ * (الأخير): تسهيلات تجار الجملة — بيع مؤجل التحصيل، بهامش أعلى مقابل
+ * الانتظار. بهذا تكتمل مرحلة البيع بأجزائها الثلاثة.
  */
 
 export type SalesChannel = "discount-market" | "wholesaler" | "boutique-trader";
@@ -45,8 +46,8 @@ export function computeUnitCost(cycles: ProductionCycle[]): number {
   return totalUnits > 0 ? totalCost / totalUnits : 0;
 }
 
-export function getRevenuePerUnit(unitCost: number, channel: SalesChannel): number {
-  return Math.round(unitCost * (1 + CHANNEL_MARGIN[channel]));
+export function getRevenuePerUnit(unitCost: number, marginRate: number): number {
+  return Math.round(unitCost * (1 + marginRate));
 }
 
 /**
@@ -224,3 +225,51 @@ export function rollAdCampaignChannel(target: AdTarget): SalesChannel {
   if (roll < weights.boutique + weights.wholesale) return "wholesaler";
   return "discount-market";
 }
+
+// ---------------------------------------------------------------------------
+// تسهيلات تجار الجملة (الجزء ج) — بيع مؤجل التحصيل، قناة wholesaler بس.
+// ---------------------------------------------------------------------------
+
+export type WholesalePaymentMethod = "cash" | "credit-30" | "credit-60" | "credit-90";
+
+export const WHOLESALE_PAYMENT_LABELS: Record<WholesalePaymentMethod, string> = {
+  cash: "كاش فوري",
+  "credit-30": "تسهيلات 30 يوم",
+  "credit-60": "تسهيلات 60 يوم",
+  "credit-90": "تسهيلات 90 يوم",
+};
+
+/** هامش الربح لقناة "تجار جملة" تحديداً، حسب طريقة الدفع — أعلى كل ما طالت مدة الانتظار. */
+export const WHOLESALE_PAYMENT_MARGIN: Record<WholesalePaymentMethod, number> = {
+  cash: CHANNEL_MARGIN.wholesaler,
+  "credit-30": 0.3,
+  "credit-60": 0.38,
+  "credit-90": 0.48,
+};
+
+/** مدة الانتظار بالأيام (محاكاة daysConsumed، مو وقت حقيقي) — غير موجودة لـ"cash" (تحصيل فوري). */
+export const WHOLESALE_CREDIT_DAYS: Record<Exclude<WholesalePaymentMethod, "cash">, number> = {
+  "credit-30": 30,
+  "credit-60": 60,
+  "credit-90": 90,
+};
+
+/**
+ * الهامش الفعلي لعملية بيع — القناتين "أسواق تخفيضات"/"تجار صغار"
+ * كاش فوري فقط دايماً (CHANNEL_MARGIN الثابت، بدون أي خيار تسهيلات،
+ * سلوكهم لم يتأثر إطلاقاً بالجزء ج). "تجار جملة" بس عنده طريقة دفع
+ * تحدد الهامش (WHOLESALE_PAYMENT_MARGIN).
+ */
+export function getMarginForSale(channel: SalesChannel, paymentMethod: WholesalePaymentMethod): number {
+  if (channel === "wholesaler") {
+    return WHOLESALE_PAYMENT_MARGIN[paymentMethod];
+  }
+  return CHANNEL_MARGIN[channel];
+}
+
+export type PendingReceivable = {
+  transactionNumber: number;
+  dueAtDaysConsumed: number;
+  amount: number;
+  collected: boolean;
+};
