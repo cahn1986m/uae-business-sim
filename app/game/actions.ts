@@ -39,6 +39,11 @@ import {
   getSaleUnitCost,
   applySaleTransaction,
   resetSales,
+  getBonusUnits,
+  getSalesEmployeeHired,
+  applySalesEmployeeHire,
+  getAdCampaigns,
+  applyAdCampaign,
 } from "@/lib/db";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
@@ -93,8 +98,14 @@ import {
   getRevenuePerUnit,
   getAvailableUnits,
   isBoutiqueTraderUnlocked,
+  applyCommission,
+  getAdCampaignBonusUnits,
+  rollAdCampaignChannel,
+  AD_BUDGET_MINIMUM,
   type SalesChannel,
   type SalesTransaction,
+  type AdTarget,
+  type AdCampaign,
 } from "@/lib/sales";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
@@ -895,12 +906,15 @@ export type SalesFormState =
  * مقفولة سيرفر-سايد بالكامل إلا لو دورة إنتاج واحدة على الأقل كانت
  * productLineType="diversified" فعلياً (فحص مباشر على productionCycles،
  * مو علم موثوق من الواجهة). يحسب availableSmallUnits/availableLargeUnits
- * ديناميكياً من productionCycles+salesTransactions (بدون أي حقل مخزَّن
- * منفصل) ويرفض لو الكمية المطلوبة أكبر من المتاح فعلياً حسب قناة
- * البيع. تكلفة الوحدة الفعلية (computeUnitCost) تُحسب وتُخزَّن
- * (saleUnitCost) مرة وحدة بس عند أول عملية بيع — العمليات التالية
- * تعيد استخدام نفس القيمة المثبَّتة. عند التأكيد: يضيف totalRevenue
- * فوراً لـcurrentCapital ويضيف عملية بيع جديدة لـsalesTransactions.
+ * ديناميكياً من productionCycles+salesTransactions+أرصدة البونص
+ * التراكمية (أثر الموقع/موظف المبيعات/الإعلانات) ويرفض لو الكمية
+ * المطلوبة أكبر من المتاح فعلياً حسب قناة البيع. تكلفة الوحدة الفعلية
+ * (computeUnitCost) تُحسب وتُخزَّن (saleUnitCost) مرة وحدة بس عند أول
+ * عملية بيع. لو موظف المبيعات موظّف: عمولته 8% تُخصم من الإيراد الخام
+ * قبل ما يصير totalRevenue النهائي (applyCommission) — نفس القيمة
+ * المضافة فعلياً لـcurrentCapital والمخزّنة بسجل العملية. عند التأكيد:
+ * يضيف totalRevenue فوراً لـcurrentCapital ويضيف عملية بيع جديدة
+ * لـsalesTransactions.
  */
 export async function confirmSaleTransaction(
   _prevState: SalesFormState,
@@ -931,8 +945,17 @@ export async function confirmSaleTransaction(
     return { error: "قناة تجار صغار مقفولة — لازم تنويع السلة (productLineType=diversified) بدورة إنتاج واحدة على الأقل." };
   }
 
-  const transactions = await getSalesTransactions(userId);
-  const { availableSmallUnits, availableLargeUnits } = getAvailableUnits(cycles, transactions);
+  const [transactions, bonusUnits, salesEmployeeHired] = await Promise.all([
+    getSalesTransactions(userId),
+    getBonusUnits(userId),
+    getSalesEmployeeHired(userId),
+  ]);
+  const { availableSmallUnits, availableLargeUnits } = getAvailableUnits(
+    cycles,
+    transactions,
+    bonusUnits.bonusSmallUnits,
+    bonusUnits.bonusLargeUnits
+  );
   const available = channel === "boutique-trader" ? availableSmallUnits : availableLargeUnits;
 
   if (unitsSold > available) {
@@ -947,7 +970,8 @@ export async function confirmSaleTransaction(
   }
 
   const revenuePerUnit = getRevenuePerUnit(unitCost, channel);
-  const totalRevenue = unitsSold * revenuePerUnit;
+  const grossRevenue = unitsSold * revenuePerUnit;
+  const totalRevenue = applyCommission(grossRevenue, salesEmployeeHired);
 
   const newTransaction: SalesTransaction = {
     transactionNumber: transactions.length + 1,
@@ -960,4 +984,87 @@ export async function confirmSaleTransaction(
   await applySaleTransaction(userId, { totalRevenue, newTransaction, staticFields });
   revalidatePath("/game");
   return { unitsSold, revenuePerUnit, totalRevenue, channel };
+}
+
+/**
+ * توظيف موظف المبيعات — قرار مرة وحدة بس (الزر بيختفي من الواجهة بعد
+ * النجاح، والدالة نفسها محروسة سيرفر-سايد بشرط WHERE ضد أي تكرار).
+ * فعل نموذج عادي (بدون useActionState، متل advanceStage/restartGame) —
+ * يرمي استثناء بدل ما يرجّع كائن خطأ صامت، لأنه ما في شي بيقرا قيمة
+ * رجوعه.
+ * بونص فوري لمرة وحدة (+30 large، +15 small)، وعمولة 8% مستمرة على كل
+ * عملية بيع تالية (تُطبَّق داخل confirmSaleTransaction نفسه).
+ */
+export async function hireSalesEmployee(): Promise<void> {
+  const userId = await requireUserId();
+
+  const alreadyHired = await getSalesEmployeeHired(userId);
+  if (alreadyHired) {
+    throw new Error("موظف المبيعات موظّف أصلاً.");
+  }
+
+  await applySalesEmployeeHire(userId);
+  revalidatePath("/game");
+}
+
+export type AdCampaignFormState =
+  | { error: string }
+  | { budget: number; target: AdTarget; bonusUnits: number; wonChannel: SalesChannel }
+  | null;
+
+/**
+ * حملة إعلانية واحدة — إجراء متكرر، قابل للتنفيذ عدة مرات. يتحقق من
+ * هدف توجيه صالح ومبلغ صحيح >= 500، يرفض سيرفر-سايد لو أكبر من
+ * currentCapital، وإلا يخصم فوراً، يحسب bonusUnits = floor(budget/50)،
+ * يسحب قناة فوز واحدة عشوائياً حسب نسب الهدف المختار (rollAdCampaignChannel)
+ * ويضيفها دفعة وحدة (مو توزيعاً مجزّأ) لحقل البونص الصحيح (small لو
+ * تجار صغار، وإلا large)، ويضيف الحملة الجديدة لـadCampaigns.
+ */
+export async function confirmAdCampaign(
+  _prevState: AdCampaignFormState,
+  formData: FormData
+): Promise<AdCampaignFormState> {
+  const userId = await requireUserId();
+
+  const target = String(formData.get("target") ?? "") as AdTarget | "";
+  if (target !== "premium" && target !== "wholesale" && target !== "discount") {
+    return { error: "لازم تختار هدف توجيه." };
+  }
+
+  const rawBudget = formData.get("budget");
+  const budget = Number(rawBudget);
+  if (
+    rawBudget === null ||
+    rawBudget === "" ||
+    !Number.isFinite(budget) ||
+    !Number.isInteger(budget) ||
+    budget < AD_BUDGET_MINIMUM
+  ) {
+    return { error: `الميزانية لازم تكون رقم صحيح ${AD_BUDGET_MINIMUM.toLocaleString("ar")} أو أكثر.` };
+  }
+
+  const currentCapital = await getCurrentCapital(userId);
+  if (budget > currentCapital) {
+    return {
+      error: `الميزانية (${budget.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+    };
+  }
+
+  const bonusUnits = getAdCampaignBonusUnits(budget);
+  const wonChannel = rollAdCampaignChannel(target);
+  const bonusField: "bonusSmallUnits" | "bonusLargeUnits" =
+    wonChannel === "boutique-trader" ? "bonusSmallUnits" : "bonusLargeUnits";
+
+  const campaigns = await getAdCampaigns(userId);
+  const newCampaign: AdCampaign = {
+    campaignNumber: campaigns.length + 1,
+    budget,
+    target,
+    bonusUnits,
+    wonChannel,
+  };
+
+  await applyAdCampaign(userId, { budget, bonusField, bonusUnits, newCampaign });
+  revalidatePath("/game");
+  return { budget, target, bonusUnits, wonChannel };
 }

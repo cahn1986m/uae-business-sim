@@ -7,7 +7,14 @@ import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
 import type { EquipmentResult, EquipmentType } from "@/lib/equipment";
 import type { HiringDecision } from "@/lib/hiring";
 import type { ProductionCycle } from "@/lib/production";
-import type { SalesTransaction } from "@/lib/sales";
+import {
+  computeLocationBonus,
+  SALES_EMPLOYEE_BONUS_LARGE_UNITS,
+  SALES_EMPLOYEE_BONUS_SMALL_UNITS,
+  type AdCampaign,
+  type LocationBonusResult,
+  type SalesTransaction,
+} from "@/lib/sales";
 
 if (!process.env.DATABASE_URL) {
   // Thrown lazily at request time (not at import time) would be nicer, but since
@@ -754,16 +761,219 @@ export async function applySaleTransaction(
   `;
 }
 
+// ---------------------------------------------------------------------------
+// مرحلة "البيع" (مرحلة 9، الجزء ب) — أثر الموقع، موظف مبيعات، إعلانات.
+// ---------------------------------------------------------------------------
+
+/** هل خيار الإيجار المختار كان primeLocation=true (مرحلة 5). */
+export async function getPrimeLocation(userId: string): Promise<boolean> {
+  const rows = await sql`
+    SELECT data->>'primeLocation' AS prime_location
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return rows[0]?.prime_location === "true";
+}
+
+/** الأرصدة "الافتراضية" التراكمية (أثر الموقع/موظف المبيعات/الإعلانات) — تبدأ 0. */
+export async function getBonusUnits(
+  userId: string
+): Promise<{ bonusSmallUnits: number; bonusLargeUnits: number }> {
+  const rows = await sql`
+    SELECT (data->>'bonusSmallUnits')::int AS bonus_small, (data->>'bonusLargeUnits')::int AS bonus_large
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const row = rows[0];
+  return {
+    bonusSmallUnits: typeof row?.bonus_small === "number" ? row.bonus_small : 0,
+    bonusLargeUnits: typeof row?.bonus_large === "number" ? row.bonus_large : 0,
+  };
+}
+
 /**
- * يصفّر salesTransactions إلى [] (قيمة صريحة، مو حذف)، ويمسح
- * saleUnitCost (كاش مرتبط ببيانات إنتاج بتنمسح هي كمان بـ"إعادة
- * البدء" — لازم يُعاد حسابه من جديد بالجولة الجاية) — تُستخدم مع
- * "إعادة البدء".
+ * أثر الموقع — تلقائي، مرة وحدة بس عند أول دخول للمرحلة 9. لو
+ * locationBonusApplied لسا false: يحسب النتائج (primeLocation +
+ * hotelConnection) ويطبّقها بضربة UPDATE وحدة محروسة بشرط WHERE (ما
+ * تنطبق مرتين حتى لو صار سباق نادر)، وبعدها يعيد قراءة النتيجة
+ * الفعلية المحفوظة (مو نسخته المحلية) ضماناً للدقة تحت أي سباق. لو
+ * applied أصلاً true، برجّع بس النتائج المخزّنة من غير أي حساب جديد.
+ */
+export async function applyLocationBonusIfNeeded(userId: string): Promise<LocationBonusResult[]> {
+  const rows = await sql`
+    SELECT
+      data->>'locationBonusApplied' AS applied,
+      data->>'primeLocation' AS prime_location,
+      data->'productionCycles' AS cycles,
+      data->'marketResearchResults' AS market_research_results
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const row = rows[0];
+
+  if (row?.applied !== "true") {
+    const primeLocation = row?.prime_location === "true";
+    const cycles = (row?.cycles as ProductionCycle[] | null) ?? [];
+    const hotelConnection =
+      (row?.market_research_results as MarketResearchResults | null)?.hotelConnection ?? [];
+
+    const { results, bonusSmallDelta, bonusLargeDelta, capitalDelta } = computeLocationBonus(
+      primeLocation,
+      cycles,
+      hotelConnection
+    );
+
+    await sql`
+      UPDATE game_state
+      SET data = jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                data,
+                '{currentCapital}',
+                to_jsonb(
+                  COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+                  + ${capitalDelta}::int
+                )
+              ),
+              '{bonusSmallUnits}',
+              to_jsonb(COALESCE((data->>'bonusSmallUnits')::int, 0) + ${bonusSmallDelta}::int)
+            ),
+            '{bonusLargeUnits}',
+            to_jsonb(COALESCE((data->>'bonusLargeUnits')::int, 0) + ${bonusLargeDelta}::int)
+          ) || ${JSON.stringify({ locationBonusApplied: true, locationBonusResults: results })}::jsonb,
+          updated_at = now()
+      WHERE user_id = ${userId}
+        AND COALESCE((data->>'locationBonusApplied')::boolean, false) = false
+    `;
+  }
+
+  const finalRows = await sql`
+    SELECT data->'locationBonusResults' AS results
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (finalRows[0]?.results as LocationBonusResult[] | null) ?? [];
+}
+
+export async function getSalesEmployeeHired(userId: string): Promise<boolean> {
+  const rows = await sql`
+    SELECT data->>'salesEmployeeHired' AS hired
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return rows[0]?.hired === "true";
+}
+
+/**
+ * يوظّف موظف المبيعات مرة وحدة — محروس بشرط WHERE (ما يطبّق البونص
+ * مرتين حتى لو صار سباق نادر). بونص فوري لمرة وحدة يُضاف لنفس حقلي
+ * البونص التراكميين المستخدمين بأثر الموقع.
+ */
+export async function applySalesEmployeeHire(userId: string): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          jsonb_set(
+            data,
+            '{bonusLargeUnits}',
+            to_jsonb(COALESCE((data->>'bonusLargeUnits')::int, 0) + ${SALES_EMPLOYEE_BONUS_LARGE_UNITS}::int)
+          ),
+          '{bonusSmallUnits}',
+          to_jsonb(COALESCE((data->>'bonusSmallUnits')::int, 0) + ${SALES_EMPLOYEE_BONUS_SMALL_UNITS}::int)
+        ) || '{"salesEmployeeHired": true}'::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+      AND COALESCE((data->>'salesEmployeeHired')::boolean, false) = false
+  `;
+}
+
+export async function getAdCampaigns(userId: string): Promise<AdCampaign[]> {
+  const rows = await sql`
+    SELECT data->'adCampaigns' AS campaigns
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.campaigns as AdCampaign[] | null) ?? [];
+}
+
+/**
+ * يخصم ميزانية الحملة من currentCapital، يضيف bonusUnits لحقل البونص
+ * الصحيح حسب القناة الفائزة (small لو تجار صغار، وإلا large)، ويضيف
+ * الحملة الجديدة لـadCampaigns — كل شي بضربة UPDATE وحدة (atomic).
+ * فرعين صريحين (بدل مسار جدولي بحقل ديناميكي) لأن السائق ما بيدعم
+ * تمرير اسم مسار jsonb_set كباراميتر.
+ */
+export async function applyAdCampaign(
+  userId: string,
+  params: {
+    budget: number;
+    bonusField: "bonusSmallUnits" | "bonusLargeUnits";
+    bonusUnits: number;
+    newCampaign: AdCampaign;
+  }
+): Promise<void> {
+  if (params.bonusField === "bonusSmallUnits") {
+    await sql`
+      UPDATE game_state
+      SET data = jsonb_set(
+            jsonb_set(
+              jsonb_set(
+                data,
+                '{currentCapital}',
+                to_jsonb(
+                  COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+                  - ${params.budget}::int
+                )
+              ),
+              '{bonusSmallUnits}',
+              to_jsonb(COALESCE((data->>'bonusSmallUnits')::int, 0) + ${params.bonusUnits}::int)
+            ),
+            '{adCampaigns}',
+            COALESCE(data->'adCampaigns', '[]'::jsonb) || ${JSON.stringify([params.newCampaign])}::jsonb
+          ),
+          updated_at = now()
+      WHERE user_id = ${userId}
+    `;
+    return;
+  }
+
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              data,
+              '{currentCapital}',
+              to_jsonb(
+                COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+                - ${params.budget}::int
+              )
+            ),
+            '{bonusLargeUnits}',
+            to_jsonb(COALESCE((data->>'bonusLargeUnits')::int, 0) + ${params.bonusUnits}::int)
+          ),
+          '{adCampaigns}',
+          COALESCE(data->'adCampaigns', '[]'::jsonb) || ${JSON.stringify([params.newCampaign])}::jsonb
+        ),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/**
+ * يصفّر salesTransactions/adCampaigns إلى [] (قيم صريحة، مو حذف)،
+ * ويمسح الحقول الباقية المرتبطة (saleUnitCost، أثر الموقع، موظف
+ * المبيعات، أرصدة البونص) — كلهم كاش/تقدّم مرتبط ببيانات إنتاج/تمويل
+ * بتنمسح هي كمان بـ"إعادة البدء"، لازم يُعاد كل شي من الصفر بالجولة
+ * الجاية. تُستخدم مع "إعادة البدء".
  */
 export async function resetSales(userId: string): Promise<void> {
   await sql`
     UPDATE game_state
-    SET data = (data - 'saleUnitCost') || '{"salesTransactions": []}'::jsonb,
+    SET data = (
+          data - 'saleUnitCost' - 'locationBonusApplied' - 'locationBonusResults'
+               - 'bonusSmallUnits' - 'bonusLargeUnits' - 'salesEmployeeHired'
+        ) || '{"salesTransactions": [], "adCampaigns": []}'::jsonb,
         updated_at = now()
     WHERE user_id = ${userId}
   `;

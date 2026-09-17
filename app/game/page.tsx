@@ -17,6 +17,10 @@ import {
   getRawMaterialInventory,
   getProductionCycles,
   getSalesTransactions,
+  getBonusUnits,
+  applyLocationBonusIfNeeded,
+  getSalesEmployeeHired,
+  getAdCampaigns,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
@@ -25,7 +29,12 @@ import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
 import type { EquipmentResult } from "@/lib/equipment";
 import type { HiringDecision } from "@/lib/hiring";
 import { getProductionCapacity, type ProductionCycle } from "@/lib/production";
-import { getAvailableUnits, isBoutiqueTraderUnlocked } from "@/lib/sales";
+import {
+  getAvailableUnits,
+  isBoutiqueTraderUnlocked,
+  type LocationBonusResult,
+  type AdCampaign,
+} from "@/lib/sales";
 import { advanceStage, restartGame } from "./actions";
 import MarketResearchStage from "./MarketResearchStage";
 import FinancingStage from "./FinancingStage";
@@ -99,6 +108,9 @@ export default async function GamePage() {
   let availableSmallUnits = 0;
   let availableLargeUnits = 0;
   let boutiqueUnlocked = false;
+  let locationBonusResults: LocationBonusResult[] = [];
+  let salesEmployeeHired = false;
+  let adCampaigns: AdCampaign[] = [];
   let canAdvance =
     !isMarketResearchStage &&
     !isFinancingStage &&
@@ -164,14 +176,33 @@ export default async function GamePage() {
   }
 
   if (isSalesStage) {
-    const [cycles, transactions] = await Promise.all([
+    // أثر الموقع تلقائي، مرة وحدة بس عند أول دخول — الدالة نفسها
+    // محروسة سيرفر-سايد (WHERE locationBonusApplied=false)، فاستدعاؤها
+    // هون بكل تحميل صفحة آمن: أول مرة بتطبّق فعلياً، بعدها بترجع نفس
+    // النتائج المخزّنة بدون أي حساب أو تأثير جديد. **لازم تُستنى لحالها
+    // أولاً** قبل قراءة bonusUnits — وإلا سباق حقيقي ممكن يقرا القيم
+    // القديمة (قبل التطبيق) لو صارت بالتوازي بنفس Promise.all.
+    const results = await applyLocationBonusIfNeeded(session.user.id);
+
+    const [cycles, transactions, bonusUnitsResult, employeeHired, campaigns] = await Promise.all([
       getProductionCycles(session.user.id),
       getSalesTransactions(session.user.id),
+      getBonusUnits(session.user.id),
+      getSalesEmployeeHired(session.user.id),
+      getAdCampaigns(session.user.id),
     ]);
-    const available = getAvailableUnits(cycles, transactions);
+    const available = getAvailableUnits(
+      cycles,
+      transactions,
+      bonusUnitsResult.bonusSmallUnits,
+      bonusUnitsResult.bonusLargeUnits
+    );
     availableSmallUnits = available.availableSmallUnits;
     availableLargeUnits = available.availableLargeUnits;
     boutiqueUnlocked = isBoutiqueTraderUnlocked(cycles);
+    locationBonusResults = results;
+    salesEmployeeHired = employeeHired;
+    adCampaigns = campaigns;
     canAdvance = transactions.length > 0;
   }
 
@@ -223,6 +254,9 @@ export default async function GamePage() {
           availableSmallUnits={availableSmallUnits}
           availableLargeUnits={availableLargeUnits}
           boutiqueUnlocked={boutiqueUnlocked}
+          locationBonusResults={locationBonusResults}
+          salesEmployeeHired={salesEmployeeHired}
+          adCampaigns={adCampaigns}
         />
       )}
 
