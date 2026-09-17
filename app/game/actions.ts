@@ -67,8 +67,12 @@ import {
   BULK_DISCOUNT_CAPACITY_MULTIPLIER,
   BULK_DISCOUNT_PERCENT,
   getProductionCapacity,
+  computeProduction,
+  PROCESSING_MODE_QUALITY,
   type ProductionCycle,
   type SupplierChoice,
+  type ProcessingMode,
+  type ProductLineType,
 } from "@/lib/production";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
@@ -653,15 +657,23 @@ export async function confirmHiringDecision(
   return null;
 }
 
-export type ProductionFormState = { error: string } | { producedUnits: number } | null;
+export type ProductionFormState =
+  | { error: string }
+  | { producedUnits: number; quality: (typeof PROCESSING_MODE_QUALITY)[ProcessingMode]; smallUnits: number; largeUnits: number }
+  | null;
 
 /**
- * دورة إنتاج واحدة: يتحقق من مورّد صالح وكمية صحيحة >= 0، يحسب
- * التكلفة (مع خصم 15% لو الكمية المشتراة + المخزون الحالي >= 1.2×
- * الطاقة)، يرفض سيرفر-سايد لو التكلفة أكبر من currentCapital، وإلا
- * يخصم ويحدّث المخزون وينتج تلقائياً: producedUnits = min(المخزون بعد
- * الشراء, الطاقة). يضيف دورة جديدة لـproductionCycles (بدون حذف
- * السابقة) ويرجّع عدد الوحدات المنتجة للعرض.
+ * دورة إنتاج واحدة: يتحقق من مورّد صالح، كمية شراء صحيحة >= 0، وضع
+ * معالجة صالح (fast/precise)، نوع خط منتج صالح (single/diversified)،
+ * ونسب تعبئة صحيحة تجمع 100 بالضبط. يحسب تكلفة الشراء (مع خصم 15% لو
+ * الكمية المشتراة + المخزون الحالي >= 1.2× الطاقة)، يرفض سيرفر-سايد
+ * لو التكلفة أكبر من currentCapital، وإلا يخصم، يحدّث المخزون
+ * بالفرق الصافي (الكمية المشتراة ناقص rawMaterialConsumed فقط — الباقي
+ * يتراكم للدورة الجاية)، وينتج تلقائياً حسب معادلة الجزء ب (تحل محل
+ * min(inventory, capacity) القديمة بالكامل). smallUnits/largeUnits
+ * تُحسب من producedUnits مباشرة (largeUnits = الباقي) لضمان تطابق
+ * المجموع بالضبط دون فروقات تقريب. يضيف دورة جديدة لـproductionCycles
+ * (بدون حذف السابقة) ويرجّع تفاصيل النتيجة للعرض.
  */
 export async function confirmProductionPurchase(
   _prevState: ProductionFormState,
@@ -684,6 +696,38 @@ export async function confirmProductionPurchase(
     purchaseQuantity < 0
   ) {
     return { error: "الكمية لازم تكون رقم صحيح 0 أو أكثر." };
+  }
+
+  const processingMode = String(formData.get("processingMode") ?? "") as ProcessingMode | "";
+  if (processingMode !== "fast" && processingMode !== "precise") {
+    return { error: "لازم تختار وضع معالجة." };
+  }
+
+  const productLineType = String(formData.get("productLineType") ?? "") as ProductLineType | "";
+  if (productLineType !== "single" && productLineType !== "diversified") {
+    return { error: "لازم تختار نوع خط المنتج." };
+  }
+
+  const rawSmallPercent = formData.get("smallPercent");
+  const rawLargePercent = formData.get("largePercent");
+  const smallPercent = Number(rawSmallPercent);
+  const largePercent = Number(rawLargePercent);
+  if (
+    rawSmallPercent === null ||
+    rawSmallPercent === "" ||
+    rawLargePercent === null ||
+    rawLargePercent === "" ||
+    !Number.isFinite(smallPercent) ||
+    !Number.isFinite(largePercent) ||
+    !Number.isInteger(smallPercent) ||
+    !Number.isInteger(largePercent) ||
+    smallPercent < 0 ||
+    largePercent < 0
+  ) {
+    return { error: "نسب التعبئة لازم تكون أرقام صحيحة 0 أو أكثر." };
+  }
+  if (smallPercent + largePercent !== 100) {
+    return { error: `نسب التعبئة لازم تجمع 100 بالضبط (المجموع الحالي: ${smallPercent + largePercent}).` };
   }
 
   const equipmentSetup = await getEquipmentSetup(userId);
@@ -709,8 +753,15 @@ export async function confirmProductionPurchase(
   }
 
   const inventoryAfterPurchase = currentInventory + purchaseQuantity;
-  const producedUnits = Math.min(inventoryAfterPurchase, productionCapacity);
-  const inventoryDelta = purchaseQuantity - producedUnits;
+  const { rawMaterialConsumed, producedUnits } = computeProduction(
+    inventoryAfterPurchase,
+    productionCapacity,
+    processingMode
+  );
+  const inventoryDelta = purchaseQuantity - rawMaterialConsumed;
+
+  const smallUnits = Math.round((producedUnits * smallPercent) / 100);
+  const largeUnits = producedUnits - smallUnits;
 
   const cycles = await getProductionCycles(userId);
   const newCycle: ProductionCycle = {
@@ -719,9 +770,15 @@ export async function confirmProductionPurchase(
     purchaseQuantity,
     purchaseCost: cost,
     producedUnits,
+    processingMode,
+    quality: PROCESSING_MODE_QUALITY[processingMode],
+    rawMaterialConsumed,
+    productLineType,
+    smallUnits,
+    largeUnits,
   };
 
   await applyProductionCycle(userId, { cost, inventoryDelta, newCycle });
   revalidatePath("/game");
-  return { producedUnits };
+  return { producedUnits, quality: PROCESSING_MODE_QUALITY[processingMode], smallUnits, largeUnits };
 }
