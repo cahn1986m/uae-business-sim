@@ -35,6 +35,10 @@ import {
   applyProductionCycle,
   resetProduction,
   consumeGameDays,
+  getSalesTransactions,
+  getSaleUnitCost,
+  applySaleTransaction,
+  resetSales,
 } from "@/lib/db";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
@@ -84,6 +88,14 @@ import {
   type ProcessingMode,
   type ProductLineType,
 } from "@/lib/production";
+import {
+  computeUnitCost,
+  getRevenuePerUnit,
+  getAvailableUnits,
+  isBoutiqueTraderUnlocked,
+  type SalesChannel,
+  type SalesTransaction,
+} from "@/lib/sales";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
 const FINANCING_STAGE_ID = 3;
@@ -92,6 +104,7 @@ const RENT_STAGE_ID = 5;
 const EQUIPMENT_STAGE_ID = 6;
 const HIRING_STAGE_ID = 7;
 const PRODUCTION_STAGE_ID = 8;
+const SALES_STAGE_ID = 9;
 
 async function requireUserId(): Promise<string> {
   const { data: session } = await auth.getSession();
@@ -159,6 +172,13 @@ export async function advanceStage() {
     }
   }
 
+  if (current === SALES_STAGE_ID) {
+    const transactions = await getSalesTransactions(userId);
+    if (transactions.length < 1) {
+      throw new Error("لازم تكمّل عملية بيع واحدة على الأقل قبل ما تكمّل.");
+    }
+  }
+
   const next = Math.min(current + 1, TOTAL_STAGES);
   await setCurrentStage(userId, next);
   revalidatePath("/game");
@@ -166,8 +186,9 @@ export async function advanceStage() {
 
 /**
  * إعادة البدء — يرجّع currentStage لـ1، وكمان يمسح تقدّم دراسة السوق
- * وقرار التمويل والترخيص والإيجار والمعدات والتوظيف حتى تكون كل مرحلة
- * جاهزة من الصفر بالجولة الجاية. للتجربة أثناء البناء فقط.
+ * وقرار التمويل والترخيص والإيجار والمعدات والتوظيف والإنتاج والبيع
+ * حتى تكون كل مرحلة جاهزة من الصفر بالجولة الجاية. للتجربة أثناء
+ * البناء فقط.
  */
 export async function restartGame() {
   const userId = await requireUserId();
@@ -184,6 +205,7 @@ export async function restartGame() {
   await resetHiring(userId);
   await resetRent(userId);
   await resetProduction(userId);
+  await resetSales(userId);
   revalidatePath("/game");
 }
 
@@ -861,4 +883,81 @@ export async function confirmProductionPurchase(
     chemistErrorOccurred,
     qcReport,
   };
+}
+
+export type SalesFormState =
+  | { error: string }
+  | { unitsSold: number; revenuePerUnit: number; totalRevenue: number; channel: SalesChannel }
+  | null;
+
+/**
+ * عملية بيع واحدة: يتحقق من قناة صالحة وكمية صحيحة > 0. "تجار صغار"
+ * مقفولة سيرفر-سايد بالكامل إلا لو دورة إنتاج واحدة على الأقل كانت
+ * productLineType="diversified" فعلياً (فحص مباشر على productionCycles،
+ * مو علم موثوق من الواجهة). يحسب availableSmallUnits/availableLargeUnits
+ * ديناميكياً من productionCycles+salesTransactions (بدون أي حقل مخزَّن
+ * منفصل) ويرفض لو الكمية المطلوبة أكبر من المتاح فعلياً حسب قناة
+ * البيع. تكلفة الوحدة الفعلية (computeUnitCost) تُحسب وتُخزَّن
+ * (saleUnitCost) مرة وحدة بس عند أول عملية بيع — العمليات التالية
+ * تعيد استخدام نفس القيمة المثبَّتة. عند التأكيد: يضيف totalRevenue
+ * فوراً لـcurrentCapital ويضيف عملية بيع جديدة لـsalesTransactions.
+ */
+export async function confirmSaleTransaction(
+  _prevState: SalesFormState,
+  formData: FormData
+): Promise<SalesFormState> {
+  const userId = await requireUserId();
+
+  const channel = String(formData.get("channel") ?? "") as SalesChannel | "";
+  if (channel !== "discount-market" && channel !== "wholesaler" && channel !== "boutique-trader") {
+    return { error: "لازم تختار قناة بيع." };
+  }
+
+  const rawUnitsSold = formData.get("unitsSold");
+  const unitsSold = Number(rawUnitsSold);
+  if (
+    rawUnitsSold === null ||
+    rawUnitsSold === "" ||
+    !Number.isFinite(unitsSold) ||
+    !Number.isInteger(unitsSold) ||
+    unitsSold < 1
+  ) {
+    return { error: "الكمية لازم تكون رقم صحيح 1 أو أكثر." };
+  }
+
+  const cycles = await getProductionCycles(userId);
+
+  if (channel === "boutique-trader" && !isBoutiqueTraderUnlocked(cycles)) {
+    return { error: "قناة تجار صغار مقفولة — لازم تنويع السلة (productLineType=diversified) بدورة إنتاج واحدة على الأقل." };
+  }
+
+  const transactions = await getSalesTransactions(userId);
+  const { availableSmallUnits, availableLargeUnits } = getAvailableUnits(cycles, transactions);
+  const available = channel === "boutique-trader" ? availableSmallUnits : availableLargeUnits;
+
+  if (unitsSold > available) {
+    return { error: `الكمية المطلوبة (${unitsSold.toLocaleString("ar")}) أكبر من المتاح فعلياً (${available.toLocaleString("ar")}).` };
+  }
+
+  const staticFields: Record<string, unknown> = {};
+  let unitCost = await getSaleUnitCost(userId);
+  if (unitCost === null) {
+    unitCost = computeUnitCost(cycles);
+    staticFields.saleUnitCost = unitCost;
+  }
+
+  const revenuePerUnit = getRevenuePerUnit(unitCost, channel);
+  const totalRevenue = unitsSold * revenuePerUnit;
+
+  const newTransaction: SalesTransaction = {
+    transactionNumber: transactions.length + 1,
+    channel,
+    unitsSold,
+    revenuePerUnit,
+    totalRevenue,
+  };
+
+  await applySaleTransaction(userId, { totalRevenue, newTransaction, staticFields });
+  revalidatePath("/game");
+  return { unitsSold, revenuePerUnit, totalRevenue, channel };
 }

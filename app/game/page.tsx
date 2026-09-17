@@ -16,6 +16,7 @@ import {
   getEquipmentSetup,
   getRawMaterialInventory,
   getProductionCycles,
+  getSalesTransactions,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
@@ -24,6 +25,7 @@ import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
 import type { EquipmentResult } from "@/lib/equipment";
 import type { HiringDecision } from "@/lib/hiring";
 import { getProductionCapacity, type ProductionCycle } from "@/lib/production";
+import { getAvailableUnits, isBoutiqueTraderUnlocked } from "@/lib/sales";
 import { advanceStage, restartGame } from "./actions";
 import MarketResearchStage from "./MarketResearchStage";
 import FinancingStage from "./FinancingStage";
@@ -33,6 +35,7 @@ import RentStage from "./RentStage";
 import EquipmentStage from "./EquipmentStage";
 import HiringStage from "./HiringStage";
 import ProductionStage from "./ProductionStage";
+import SalesStage from "./SalesStage";
 
 // المرحلة الحالية تُقرا من قاعدة البيانات بكل مرة — لازم رندر ديناميكي.
 export const dynamic = "force-dynamic";
@@ -44,6 +47,7 @@ const RENT_STAGE_ID = 5;
 const EQUIPMENT_STAGE_ID = 6;
 const HIRING_STAGE_ID = 7;
 const PRODUCTION_STAGE_ID = 8;
+const SALES_STAGE_ID = 9;
 
 export default async function GamePage() {
   const { data: session } = await auth.getSession();
@@ -62,6 +66,7 @@ export default async function GamePage() {
   const isEquipmentStage = currentStage === EQUIPMENT_STAGE_ID;
   const isHiringStage = currentStage === HIRING_STAGE_ID;
   const isProductionStage = currentStage === PRODUCTION_STAGE_ID;
+  const isSalesStage = currentStage === SALES_STAGE_ID;
 
   // عرض مهلة الأداء + currentCapital (بعد ما يتأكّد قرار التمويل) لازم
   // يظهر بكل شاشات اللعبة التالية، مو بس مرحلة 3 — فبنجيبهم دايماً بغض
@@ -91,6 +96,9 @@ export default async function GamePage() {
   let productionCapacity = 0;
   let rawMaterialInventory = 0;
   let productionCycles: ProductionCycle[] = [];
+  let availableSmallUnits = 0;
+  let availableLargeUnits = 0;
+  let boutiqueUnlocked = false;
   let canAdvance =
     !isMarketResearchStage &&
     !isFinancingStage &&
@@ -98,7 +106,8 @@ export default async function GamePage() {
     !isRentStage &&
     !isEquipmentStage &&
     !isHiringStage &&
-    !isProductionStage;
+    !isProductionStage &&
+    !isSalesStage;
 
   if (isMarketResearchStage) {
     [marketResearchCredit, marketResearchResults] = await Promise.all([
@@ -154,6 +163,18 @@ export default async function GamePage() {
     canAdvance = productionCycles.length > 0;
   }
 
+  if (isSalesStage) {
+    const [cycles, transactions] = await Promise.all([
+      getProductionCycles(session.user.id),
+      getSalesTransactions(session.user.id),
+    ]);
+    const available = getAvailableUnits(cycles, transactions);
+    availableSmallUnits = available.availableSmallUnits;
+    availableLargeUnits = available.availableLargeUnits;
+    boutiqueUnlocked = isBoutiqueTraderUnlocked(cycles);
+    canAdvance = transactions.length > 0;
+  }
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center">
       {financingDecision && remainingDays !== null && (
@@ -194,6 +215,14 @@ export default async function GamePage() {
           capacity={productionCapacity}
           rawMaterialInventory={rawMaterialInventory}
           cycles={productionCycles}
+        />
+      )}
+
+      {isSalesStage && (
+        <SalesStage
+          availableSmallUnits={availableSmallUnits}
+          availableLargeUnits={availableLargeUnits}
+          boutiqueUnlocked={boutiqueUnlocked}
         />
       )}
 

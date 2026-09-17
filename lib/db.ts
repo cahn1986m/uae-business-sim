@@ -7,6 +7,7 @@ import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
 import type { EquipmentResult, EquipmentType } from "@/lib/equipment";
 import type { HiringDecision } from "@/lib/hiring";
 import type { ProductionCycle } from "@/lib/production";
+import type { SalesTransaction } from "@/lib/sales";
 
 if (!process.env.DATABASE_URL) {
   // Thrown lazily at request time (not at import time) would be nicer, but since
@@ -689,6 +690,80 @@ export async function resetProduction(userId: string): Promise<void> {
   await sql`
     UPDATE game_state
     SET data = data || '{"productionCycles": [], "rawMaterialInventory": 0}'::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// مرحلة "البيع" (مرحلة 9، الجزء أ) — بيع يدوي متكرر بثلاث قنوات.
+// ---------------------------------------------------------------------------
+
+export async function getSalesTransactions(userId: string): Promise<SalesTransaction[]> {
+  const rows = await sql`
+    SELECT data->'salesTransactions' AS transactions
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.transactions as SalesTransaction[] | null) ?? [];
+}
+
+/**
+ * تكلفة الوحدة المخزّنة (`saleUnitCost`) — محسوبة ومثبَّتة عند أول
+ * عملية بيع فعلية، null لو لسا ما صارت أي عملية بيع.
+ */
+export async function getSaleUnitCost(userId: string): Promise<number | null> {
+  const rows = await sql`
+    SELECT data->'saleUnitCost' AS unit_cost
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const value = rows[0]?.unit_cost;
+  return typeof value === "number" ? value : null;
+}
+
+/**
+ * يضيف totalRevenue فوراً لـcurrentCapital، يضيف عملية البيع الجديدة
+ * لـsalesTransactions، ويخزّن saleUnitCost لو هاي أول عملية بيع (عبر
+ * staticFields) — كل شي بضربة UPDATE وحدة (atomic).
+ */
+export async function applySaleTransaction(
+  userId: string,
+  params: {
+    totalRevenue: number;
+    newTransaction: SalesTransaction;
+    staticFields: Record<string, unknown>;
+  }
+): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          jsonb_set(
+            data,
+            '{currentCapital}',
+            to_jsonb(
+              COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+              + ${params.totalRevenue}::int
+            )
+          ),
+          '{salesTransactions}',
+          COALESCE(data->'salesTransactions', '[]'::jsonb) || ${JSON.stringify([params.newTransaction])}::jsonb
+        ) || ${JSON.stringify(params.staticFields)}::jsonb,
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/**
+ * يصفّر salesTransactions إلى [] (قيمة صريحة، مو حذف)، ويمسح
+ * saleUnitCost (كاش مرتبط ببيانات إنتاج بتنمسح هي كمان بـ"إعادة
+ * البدء" — لازم يُعاد حسابه من جديد بالجولة الجاية) — تُستخدم مع
+ * "إعادة البدء".
+ */
+export async function resetSales(userId: string): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = (data - 'saleUnitCost') || '{"salesTransactions": []}'::jsonb,
         updated_at = now()
     WHERE user_id = ${userId}
   `;
