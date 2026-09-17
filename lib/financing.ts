@@ -60,3 +60,14 @@ export type FinancingDecision = {
   financingStartedAt: string;
   financingDeadlineDays: number;
 };
+
+/**
+ * رسائل ضغط المستثمر عند تجاوز المهلة (daysConsumed > financingDeadlineDays)
+ * — عرض واجهة فقط، بدون أي اعتراض فعلي على قرارات اللاعب (حسب roadmap.md).
+ * اللهجة تتصاعد حسب investorEquityPercent المخزّن فعلياً من هالمرحلة.
+ */
+export const INVESTOR_PRESSURE_MESSAGES: Record<number, string> = {
+  0: "تجاوزت المهلة المتوقعة — البنك يتابع الوضع",
+  10: "تجاوزت المهلة — المستثمرون بدأوا يسألون عن التأخير",
+  25: "تجاوزت المهلة بشكل خطير — ضغط حقيقي من المستثمرين، قد يتدخلوا قريباً",
+};

@@ -63,15 +63,19 @@ export default async function GamePage() {
   const isHiringStage = currentStage === HIRING_STAGE_ID;
   const isProductionStage = currentStage === PRODUCTION_STAGE_ID;
 
-  // عرض مهلة الأداء (بعد ما يتأكّد قرار التمويل) لازم يظهر بكل شاشات
-  // اللعبة التالية، مو بس مرحلة 3 — فبنجيبه دايماً بغض النظر شو المرحلة.
-  // الرقم محاكاة (daysConsumed) مو وقت حقيقي — ثابت لحد ما يتغيّر
-  // daysConsumed فعلياً بقاعدة البيانات.
+  // عرض مهلة الأداء + currentCapital (بعد ما يتأكّد قرار التمويل) لازم
+  // يظهر بكل شاشات اللعبة التالية، مو بس مرحلة 3 — فبنجيبهم دايماً بغض
+  // النظر شو المرحلة. الرقم محاكاة (daysConsumed) مو وقت حقيقي — ثابت
+  // لحد ما يتغيّر daysConsumed فعلياً بقاعدة البيانات. currentCapital
+  // بيتهيّأ (lazy) من startingCapital أول مرة نحتاجه هون لو لسا ما
+  // اتهيّأ (نفس آلية getCurrentCapital الموجودة أصلاً لمرحلة الترخيص).
   const financingDecision = await getFinancingDecision(session.user.id);
   const daysConsumed = financingDecision ? await getDaysConsumed(session.user.id) : 0;
+  const currentCapitalForHud = financingDecision ? await getCurrentCapital(session.user.id) : 0;
   const remainingDays = financingDecision
     ? Math.max(financingDecision.financingDeadlineDays - daysConsumed, 0)
     : null;
+  const isOverdue = financingDecision ? daysConsumed > financingDecision.financingDeadlineDays : false;
 
   // بمرحلة دراسة السوق تحديداً: لازم اللاعب يأكّد قرار الشراء (حتى لو
   // قرار "ما بشتري شي") قبل ما يقدر يكمّل — ما بنعرض زر "التالي" إلا
@@ -109,8 +113,8 @@ export default async function GamePage() {
   }
 
   if (isLicensingStage) {
-    // currentCapital بيتهيّأ (lazy) من startingCapital أول زيارة لهالمرحلة.
-    await getCurrentCapital(session.user.id);
+    // currentCapital اتهيّأ (lazy) فوق أصلاً — بشريط الحالة الدائم، يلي
+    // بيظهر بكل شاشة فيها قرار تمويل، بما فيها هاي.
     licensingResult = await getLicensingResult(session.user.id);
     canAdvance = licensingResult !== null;
   }
@@ -156,6 +160,9 @@ export default async function GamePage() {
         <FinancingCountdown
           remainingDays={remainingDays}
           totalDays={financingDecision.financingDeadlineDays}
+          currentCapital={currentCapitalForHud}
+          isOverdue={isOverdue}
+          investorEquityPercent={financingDecision.investorEquityPercent}
         />
       )}
 
