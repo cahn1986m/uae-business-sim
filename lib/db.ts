@@ -361,6 +361,17 @@ export async function saveRentNegotiation(
   `;
 }
 
+/** freeSetupDays المخزّن وقت التفاوض (15 لو نجح مع مسار ترخيص agency) — null لو مش موجود. */
+export async function getRentFreeSetupDays(userId: string): Promise<number | null> {
+  const rows = await sql`
+    SELECT (data->>'freeSetupDays')::int AS free_setup_days
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const value = rows[0]?.free_setup_days;
+  return typeof value === "number" ? value : null;
+}
+
 /** يرجّع قرار الإيجار النهائي المحفوظ، أو null لو اللاعب لسا ما أكّد. */
 export async function getRentResult(userId: string): Promise<RentResult | null> {
   const rows = await sql`

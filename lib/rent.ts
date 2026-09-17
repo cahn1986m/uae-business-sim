@@ -50,6 +50,13 @@ export function getRentOption(id: string) {
   return RENT_OPTIONS.find((o) => o.id === id);
 }
 
+/**
+ * أيام تجهيز المكان الأساسية عند التأكيد النهائي — تُستهلك من daysConsumed
+ * (مهلة الأداء). تنخفض لـ5 (20-15) لو نجح التفاوض مع مسار ترخيص "agency"
+ * (freeSetupDays=15 المخزّن وقت التفاوض)، وإلا تُستهلك كاملة.
+ */
+export const RENT_BASE_SETUP_DAYS = 20;
+
 export type MissingServiceKey = "offices" | "loadingDock" | "maintenance" | "utilities";
 
 /** الخدمات الناقصة لخياري "الفاضي" — كل عنصر 1,500، إجمالي 6,000 إن ظهرت كلها. */

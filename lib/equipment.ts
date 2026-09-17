@@ -14,6 +14,7 @@ export const EQUIPMENT_OPTIONS: {
   spaceUsed: number;
   suggestedWorkers: number;
   allowsInstallments: boolean;
+  setupDays: number;
 }[] = [
   {
     type: "automatic",
@@ -22,6 +23,7 @@ export const EQUIPMENT_OPTIONS: {
     spaceUsed: 10,
     suggestedWorkers: 2,
     allowsInstallments: true,
+    setupDays: 10,
   },
   {
     type: "semi-automatic",
@@ -30,6 +32,7 @@ export const EQUIPMENT_OPTIONS: {
     spaceUsed: 6,
     suggestedWorkers: 5,
     allowsInstallments: false,
+    setupDays: 5,
   },
 ];
 

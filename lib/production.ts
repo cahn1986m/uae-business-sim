@@ -101,6 +101,18 @@ export function applyChemistErrorWaste(afterNaturalWaste: number, tier: ChemistT
 /** تكلفة فحص الجودة (QC) الثابتة لكل دورة — اختياري، يُخصم فوراً عند التأكيد إن كان مفعّلاً. */
 export const QC_COST = 300;
 
+/**
+ * أيام محاكاة تُستهلك من daysConsumed لكل دورة إنتاج — تتناسب مع حجم
+ * الشراء (كمية أكبر = وقت تجهيز/تصنيع أطول)، بحد أدنى يومين حتى لو
+ * الكمية صغيرة جداً أو صفر.
+ */
+export const PRODUCTION_DAYS_QUANTITY_DIVISOR = 50;
+export const PRODUCTION_DAYS_MINIMUM = 2;
+
+export function getProductionCycleDays(purchaseQuantity: number): number {
+  return Math.max(PRODUCTION_DAYS_MINIMUM, Math.ceil(purchaseQuantity / PRODUCTION_DAYS_QUANTITY_DIVISOR));
+}
+
 export type ProductionCycle = {
   cycleNumber: number;
   supplierChoice: SupplierChoice;
@@ -116,4 +128,5 @@ export type ProductionCycle = {
   chemistErrorOccurred: boolean;
   qcPurchased: boolean;
   finalProducedUnits: number;
+  daysConsumedThisCycle: number;
 };

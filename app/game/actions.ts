@@ -19,6 +19,7 @@ import {
   getRentNegotiation,
   saveRentNegotiation,
   getRentResult,
+  getRentFreeSetupDays,
   applyRentDecision,
   resetRent,
   getRentSpaceSize,
@@ -33,6 +34,7 @@ import {
   getProductionCycles,
   applyProductionCycle,
   resetProduction,
+  consumeGameDays,
 } from "@/lib/db";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
@@ -57,6 +59,7 @@ import {
   getRentOption,
   rollMissingServiceSurprises,
   MISSING_SERVICES_TOTAL,
+  RENT_BASE_SETUP_DAYS,
   type NegotiationResult,
   type RentResult,
 } from "@/lib/rent";
@@ -75,6 +78,7 @@ import {
   applyChemistErrorWaste,
   CHEMIST_ERROR_CONFIG,
   QC_COST,
+  getProductionCycleDays,
   type ProductionCycle,
   type SupplierChoice,
   type ProcessingMode,
@@ -416,7 +420,10 @@ export type RentFormState = { error: string } | null;
  * + خصم التفاوض المحفوظ إن وُجد)، يحدّد الدفعة المطلوبة الآن حسب طريقة
  * الدفع، يرفض سيرفر-سايد لو أكبر من currentCapital، وإلا يخصم، يضيف
  * قسط شهري لو تقسيط، ويرمي مفاجآت النواقص العشوائية (مرة وحدة) لو
- * الخيار فاضٍ وما انشافت تفاصيله قبل التأكيد.
+ * الخيار فاضٍ وما انشافت تفاصيله قبل التأكيد. بعد التأكيد الناجح
+ * (تصحيح رجعي): يستهلك 20 يوم تجهيز (أو 5 لو freeSetupDays=15 من
+ * تفاوض ناجح سابق مع مسار ترخيص agency) — مرة وحدة بس، مو عند كل
+ * تحميل صفحة.
  */
 export async function confirmRentDecision(
   _prevState: RentFormState,
@@ -502,6 +509,13 @@ export async function confirmRentDecision(
     staticFields,
   });
 
+  // استهلاك أيام تجهيز المكان — مرة وحدة عند التأكيد النهائي (مو عند
+  // فتح "تفاصيل" أو التفاوض نفسه). freeSetupDays=15 (تفاوض ناجح مع
+  // مسار ترخيص agency) يخفّض الاستهلاك لـ5 بدل الـ20 كاملة.
+  const freeSetupDays = await getRentFreeSetupDays(userId);
+  const setupDaysConsumed = freeSetupDays === 15 ? RENT_BASE_SETUP_DAYS - 15 : RENT_BASE_SETUP_DAYS;
+  await consumeGameDays(userId, setupDaysConsumed);
+
   revalidatePath("/game");
   return null;
 }
@@ -514,7 +528,9 @@ export type EquipmentFormState = { error: string } | null;
  * ممنوع كلياً على الخط النصف أوتوماتيكي حتى لو انبعتت مباشرة). يرفض
  * لو التكلفة المطلوبة أكبر من currentCapital، وإلا يخصم، يضيف قسط
  * المعدات (إن كان تقسيط) وقسط رواتب العمال (دايماً) لـ
- * monthlyObligations، ويخزّن القرار النهائي.
+ * monthlyObligations، ويخزّن القرار النهائي. بعد التأكيد الناجح
+ * (تصحيح رجعي): يستهلك أيام تجهيز حسب نوع الخط (أوتوماتيكي 10، نصف
+ * أوتوماتيكي 5) — مرة وحدة بس.
  */
 export async function confirmEquipmentDecision(
   _prevState: EquipmentFormState,
@@ -602,6 +618,10 @@ export async function confirmEquipmentDecision(
       equipmentResult: result,
     },
   });
+
+  // استهلاك أيام تجهيز الخط — مرة وحدة عند التأكيد، حسب نوع الخط
+  // المختار (option.setupDays: أوتوماتيكي 10، نصف أوتوماتيكي 5).
+  await consumeGameDays(userId, option.setupDays);
 
   revalidatePath("/game");
   return null;
@@ -691,7 +711,10 @@ export type ProductionFormState =
  * هيك. smallUnits/largeUnits تُحسب من finalProducedUnits (مو
  * producedUnits الخام) بنفس نمط "largeUnits = الباقي" لتفادي فروقات
  * التقريب. يضيف دورة جديدة لـproductionCycles (بدون حذف السابقة)
- * ويرجّع تفاصيل النتيجة (بما فيها تقرير QC إن اشتُري) للعرض.
+ * ويرجّع تفاصيل النتيجة (بما فيها تقرير QC إن اشتُري) للعرض. بعد
+ * التأكيد الناجح (تصحيح رجعي): يستهلك max(2, ceil(purchaseQuantity/50))
+ * يوم — مرة وحدة بس، ويخزّنها كحقل daysConsumedThisCycle بعنصر الدورة
+ * نفسه للمراجعة لاحقاً.
  */
 export async function confirmProductionPurchase(
   _prevState: ProductionFormState,
@@ -795,6 +818,10 @@ export async function confirmProductionPurchase(
   const smallUnits = Math.round((finalProducedUnits * smallPercent) / 100);
   const largeUnits = finalProducedUnits - smallUnits;
 
+  // استهلاك أيام يتناسب مع حجم الشراء — بحد أدنى يومين، يُخزَّن كحقل
+  // بعنصر الدورة نفسه للمراجعة لاحقاً.
+  const daysConsumedThisCycle = getProductionCycleDays(purchaseQuantity);
+
   const cycles = await getProductionCycles(userId);
   const newCycle: ProductionCycle = {
     cycleNumber: cycles.length + 1,
@@ -811,9 +838,11 @@ export async function confirmProductionPurchase(
     chemistErrorOccurred,
     qcPurchased,
     finalProducedUnits,
+    daysConsumedThisCycle,
   };
 
   await applyProductionCycle(userId, { cost: totalCost, inventoryDelta, newCycle });
+  await consumeGameDays(userId, daysConsumedThisCycle);
   revalidatePath("/game");
 
   const qcReport = qcPurchased
