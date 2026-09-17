@@ -934,6 +934,16 @@ export async function applyLocationBonusIfNeeded(userId: string): Promise<Locati
   return (finalRows[0]?.results as LocationBonusResult[] | null) ?? [];
 }
 
+/** نتائج أثر الموقع المخزَّنة (من `applyLocationBonusIfNeeded`) — قراءة صرفة، بدون أي تطبيق/تعديل. */
+export async function getLocationBonusResults(userId: string): Promise<LocationBonusResult[]> {
+  const rows = await sql`
+    SELECT data->'locationBonusResults' AS results
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.results as LocationBonusResult[] | null) ?? [];
+}
+
 export async function getSalesEmployeeHired(userId: string): Promise<boolean> {
   const rows = await sql`
     SELECT data->>'salesEmployeeHired' AS hired

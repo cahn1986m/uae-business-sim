@@ -22,6 +22,8 @@ import {
   getSalesEmployeeHired,
   getAdCampaigns,
   getPendingReceivables,
+  getSaleUnitCost,
+  getLocationBonusResults,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
@@ -35,6 +37,7 @@ import {
   isBoutiqueTraderUnlocked,
   type LocationBonusResult,
   type AdCampaign,
+  type SalesTransaction,
 } from "@/lib/sales";
 import { advanceStage, restartGame } from "./actions";
 import MarketResearchStage from "./MarketResearchStage";
@@ -46,6 +49,7 @@ import EquipmentStage from "./EquipmentStage";
 import HiringStage from "./HiringStage";
 import ProductionStage from "./ProductionStage";
 import SalesStage from "./SalesStage";
+import ResultStage from "./ResultStage";
 
 // المرحلة الحالية تُقرا من قاعدة البيانات بكل مرة — لازم رندر ديناميكي.
 export const dynamic = "force-dynamic";
@@ -58,6 +62,7 @@ const EQUIPMENT_STAGE_ID = 6;
 const HIRING_STAGE_ID = 7;
 const PRODUCTION_STAGE_ID = 8;
 const SALES_STAGE_ID = 9;
+const RESULT_STAGE_ID = 10;
 
 export default async function GamePage() {
   const { data: session } = await auth.getSession();
@@ -77,6 +82,7 @@ export default async function GamePage() {
   const isHiringStage = currentStage === HIRING_STAGE_ID;
   const isProductionStage = currentStage === PRODUCTION_STAGE_ID;
   const isSalesStage = currentStage === SALES_STAGE_ID;
+  const isResultStage = currentStage === RESULT_STAGE_ID;
 
   // عرض مهلة الأداء + currentCapital (بعد ما يتأكّد قرار التمويل) لازم
   // يظهر بكل شاشات اللعبة التالية، مو بس مرحلة 3 — فبنجيبهم دايماً بغض
@@ -120,6 +126,8 @@ export default async function GamePage() {
   let locationBonusResults: LocationBonusResult[] = [];
   let salesEmployeeHired = false;
   let adCampaigns: AdCampaign[] = [];
+  let salesTransactions: SalesTransaction[] = [];
+  let saleUnitCost: number | null = null;
   let canAdvance =
     !isMarketResearchStage &&
     !isFinancingStage &&
@@ -215,6 +223,47 @@ export default async function GamePage() {
     canAdvance = transactions.length > 0;
   }
 
+  if (isResultStage) {
+    // قراءة بحت لكل ما تخزّن عبر المراحل 1-9 — بدون أي منطق لعب جديد
+    // أو تعديل، تجميع فقط بتقرير واحد نهائي (مرحلة 10، الأخيرة).
+    const [
+      marketResearch,
+      licensing,
+      rent,
+      equipment,
+      hiring,
+      cycles,
+      transactions,
+      unitCost,
+      employeeHired,
+      campaigns,
+      locBonusResults,
+    ] = await Promise.all([
+      getMarketResearchResults(session.user.id),
+      getLicensingResult(session.user.id),
+      getRentResult(session.user.id),
+      getEquipmentResult(session.user.id),
+      getHiringDecision(session.user.id),
+      getProductionCycles(session.user.id),
+      getSalesTransactions(session.user.id),
+      getSaleUnitCost(session.user.id),
+      getSalesEmployeeHired(session.user.id),
+      getAdCampaigns(session.user.id),
+      getLocationBonusResults(session.user.id),
+    ]);
+    marketResearchResults = marketResearch;
+    licensingResult = licensing;
+    rentResult = rent;
+    equipmentResult = equipment;
+    hiringDecision = hiring;
+    productionCycles = cycles;
+    salesTransactions = transactions;
+    saleUnitCost = unitCost;
+    salesEmployeeHired = employeeHired;
+    adCampaigns = campaigns;
+    locationBonusResults = locBonusResults;
+  }
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center">
       {financingDecision && remainingDays !== null && (
@@ -265,6 +314,27 @@ export default async function GamePage() {
           availableLargeUnits={availableLargeUnits}
           boutiqueUnlocked={boutiqueUnlocked}
           locationBonusResults={locationBonusResults}
+          salesEmployeeHired={salesEmployeeHired}
+          adCampaigns={adCampaigns}
+        />
+      )}
+
+      {isResultStage && financingDecision && licensingResult && rentResult && equipmentResult && hiringDecision && saleUnitCost !== null && (
+        <ResultStage
+          currentCapital={currentCapitalForHud}
+          pendingReceivables={pendingReceivables}
+          startingCapital={financingDecision.startingCapital}
+          marketResearchResults={marketResearchResults}
+          locationBonusResults={locationBonusResults}
+          financingDecision={financingDecision}
+          daysConsumed={daysConsumed}
+          licensingResult={licensingResult}
+          rentResult={rentResult}
+          equipmentResult={equipmentResult}
+          hiringDecision={hiringDecision}
+          productionCycles={productionCycles}
+          salesTransactions={salesTransactions}
+          saleUnitCost={saleUnitCost}
           salesEmployeeHired={salesEmployeeHired}
           adCampaigns={adCampaigns}
         />
