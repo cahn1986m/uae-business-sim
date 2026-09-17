@@ -13,6 +13,9 @@ import {
   getRentSpaceSize,
   getEquipmentResult,
   getHiringDecision,
+  getEquipmentSetup,
+  getRawMaterialInventory,
+  getProductionCycles,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
@@ -20,6 +23,7 @@ import type { LicensingResult } from "@/lib/licensing";
 import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
 import type { EquipmentResult } from "@/lib/equipment";
 import type { HiringDecision } from "@/lib/hiring";
+import { getProductionCapacity, type ProductionCycle } from "@/lib/production";
 import { advanceStage, restartGame } from "./actions";
 import MarketResearchStage from "./MarketResearchStage";
 import FinancingStage from "./FinancingStage";
@@ -28,6 +32,7 @@ import LicensingStage from "./LicensingStage";
 import RentStage from "./RentStage";
 import EquipmentStage from "./EquipmentStage";
 import HiringStage from "./HiringStage";
+import ProductionStage from "./ProductionStage";
 
 // المرحلة الحالية تُقرا من قاعدة البيانات بكل مرة — لازم رندر ديناميكي.
 export const dynamic = "force-dynamic";
@@ -38,6 +43,7 @@ const LICENSING_STAGE_ID = 4;
 const RENT_STAGE_ID = 5;
 const EQUIPMENT_STAGE_ID = 6;
 const HIRING_STAGE_ID = 7;
+const PRODUCTION_STAGE_ID = 8;
 
 export default async function GamePage() {
   const { data: session } = await auth.getSession();
@@ -55,6 +61,7 @@ export default async function GamePage() {
   const isRentStage = currentStage === RENT_STAGE_ID;
   const isEquipmentStage = currentStage === EQUIPMENT_STAGE_ID;
   const isHiringStage = currentStage === HIRING_STAGE_ID;
+  const isProductionStage = currentStage === PRODUCTION_STAGE_ID;
 
   // عرض مهلة الأداء (بعد ما يتأكّد قرار التمويل) لازم يظهر بكل شاشات
   // اللعبة التالية، مو بس مرحلة 3 — فبنجيبه دايماً بغض النظر شو المرحلة.
@@ -77,13 +84,17 @@ export default async function GamePage() {
   let equipmentSpaceSize: RentSpaceSize | null = null;
   let equipmentResult: EquipmentResult | null = null;
   let hiringDecision: HiringDecision | null = null;
+  let productionCapacity = 0;
+  let rawMaterialInventory = 0;
+  let productionCycles: ProductionCycle[] = [];
   let canAdvance =
     !isMarketResearchStage &&
     !isFinancingStage &&
     !isLicensingStage &&
     !isRentStage &&
     !isEquipmentStage &&
-    !isHiringStage;
+    !isHiringStage &&
+    !isProductionStage;
 
   if (isMarketResearchStage) {
     [marketResearchCredit, marketResearchResults] = await Promise.all([
@@ -125,6 +136,20 @@ export default async function GamePage() {
     canAdvance = hiringDecision !== null;
   }
 
+  if (isProductionStage) {
+    const [equipmentSetup, inventory, cycles] = await Promise.all([
+      getEquipmentSetup(session.user.id),
+      getRawMaterialInventory(session.user.id),
+      getProductionCycles(session.user.id),
+    ]);
+    productionCapacity = equipmentSetup
+      ? getProductionCapacity(equipmentSetup.equipmentType, equipmentSetup.workerCount)
+      : 0;
+    rawMaterialInventory = inventory;
+    productionCycles = cycles;
+    canAdvance = productionCycles.length > 0;
+  }
+
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center">
       {financingDecision && remainingDays !== null && (
@@ -156,6 +181,14 @@ export default async function GamePage() {
       )}
 
       {isHiringStage && <HiringStage decision={hiringDecision} />}
+
+      {isProductionStage && (
+        <ProductionStage
+          capacity={productionCapacity}
+          rawMaterialInventory={rawMaterialInventory}
+          cycles={productionCycles}
+        />
+      )}
 
       {isLastStage ? (
         <p className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium dark:bg-zinc-900">

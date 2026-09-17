@@ -4,8 +4,9 @@ import { MARKET_RESEARCH_TOTAL_CREDIT, type MarketResearchResults } from "@/lib/
 import type { FinancingDecision } from "@/lib/financing";
 import type { LicensingPath, LicensingResult } from "@/lib/licensing";
 import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
-import type { EquipmentResult } from "@/lib/equipment";
+import type { EquipmentResult, EquipmentType } from "@/lib/equipment";
 import type { HiringDecision } from "@/lib/hiring";
+import type { ProductionCycle } from "@/lib/production";
 
 if (!process.env.DATABASE_URL) {
   // Thrown lazily at request time (not at import time) would be nicer, but since
@@ -584,6 +585,99 @@ export async function resetHiring(userId: string): Promise<void> {
             '[]'::jsonb
           )
         ),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// مرحلة "الإنتاج" (مرحلة 8، الجزء أ) — دورات متكررة: شراء مواد خام +
+// إنتاج تلقائي.
+// ---------------------------------------------------------------------------
+
+/** equipmentType/workerCount المحفوظين من مرحلة المعدات (6) — لازم يكونوا موجودين قبل ما نوصل هالمرحلة. */
+export async function getEquipmentSetup(
+  userId: string
+): Promise<{ equipmentType: EquipmentType; workerCount: number } | null> {
+  const rows = await sql`
+    SELECT
+      data->>'equipmentType' AS equipment_type,
+      (data->>'workerCount')::int AS worker_count
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const row = rows[0];
+  if (!row?.equipment_type || typeof row.worker_count !== "number") {
+    return null;
+  }
+  return { equipmentType: row.equipment_type as EquipmentType, workerCount: row.worker_count };
+}
+
+/** مخزون المواد الخام المتراكم — يبدأ 0 لو مش موجود بعد. */
+export async function getRawMaterialInventory(userId: string): Promise<number> {
+  const rows = await sql`
+    SELECT (data->>'rawMaterialInventory')::int AS raw_material_inventory
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const value = rows[0]?.raw_material_inventory;
+  return typeof value === "number" ? value : 0;
+}
+
+/** كل دورات الإنتاج المؤكدة لحد الآن — يبدأ مصفوفة فاضية لو مش موجودة بعد. */
+export async function getProductionCycles(userId: string): Promise<ProductionCycle[]> {
+  const rows = await sql`
+    SELECT data->'productionCycles' AS cycles
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.cycles as ProductionCycle[] | null) ?? [];
+}
+
+/**
+ * يخصم تكلفة الشراء من currentCapital، يحدّث rawMaterialInventory
+ * بالفرق الصافي (الكمية المشتراة ناقص الكمية المنتجة هالدورة)، ويضيف
+ * الدورة الجديدة لـproductionCycles — كل شي بضربة UPDATE وحدة (atomic).
+ */
+export async function applyProductionCycle(
+  userId: string,
+  params: {
+    cost: number;
+    inventoryDelta: number;
+    newCycle: ProductionCycle;
+  }
+): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(
+          jsonb_set(
+            jsonb_set(
+              data,
+              '{currentCapital}',
+              to_jsonb(
+                COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+                - ${params.cost}::int
+              )
+            ),
+            '{rawMaterialInventory}',
+            to_jsonb(COALESCE((data->>'rawMaterialInventory')::int, 0) + ${params.inventoryDelta}::int)
+          ),
+          '{productionCycles}',
+          COALESCE(data->'productionCycles', '[]'::jsonb) || ${JSON.stringify([params.newCycle])}::jsonb
+        ),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/**
+ * يصفّر productionCycles إلى [] وrawMaterialInventory إلى 0 (مو حذف
+ * الحقلين — قيم صفر صريحة) — تُستخدم مع "إعادة البدء".
+ */
+export async function resetProduction(userId: string): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = data || '{"productionCycles": [], "rawMaterialInventory": 0}'::jsonb,
         updated_at = now()
     WHERE user_id = ${userId}
   `;

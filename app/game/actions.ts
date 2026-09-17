@@ -28,6 +28,11 @@ import {
   getHiringDecision,
   applyHiringDecision,
   resetHiring,
+  getEquipmentSetup,
+  getRawMaterialInventory,
+  getProductionCycles,
+  applyProductionCycle,
+  resetProduction,
 } from "@/lib/db";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
@@ -57,6 +62,14 @@ import {
 } from "@/lib/rent";
 import { getEquipmentOption, SPACE_BUDGET, WORKER_MONTHLY_SALARY, type EquipmentResult } from "@/lib/equipment";
 import { getHiringRole } from "@/lib/hiring";
+import {
+  SUPPLIER_PRICE_PER_UNIT,
+  BULK_DISCOUNT_CAPACITY_MULTIPLIER,
+  BULK_DISCOUNT_PERCENT,
+  getProductionCapacity,
+  type ProductionCycle,
+  type SupplierChoice,
+} from "@/lib/production";
 
 const MARKET_RESEARCH_STAGE_ID = 2;
 const FINANCING_STAGE_ID = 3;
@@ -64,6 +77,7 @@ const LICENSING_STAGE_ID = 4;
 const RENT_STAGE_ID = 5;
 const EQUIPMENT_STAGE_ID = 6;
 const HIRING_STAGE_ID = 7;
+const PRODUCTION_STAGE_ID = 8;
 
 async function requireUserId(): Promise<string> {
   const { data: session } = await auth.getSession();
@@ -124,6 +138,13 @@ export async function advanceStage() {
     }
   }
 
+  if (current === PRODUCTION_STAGE_ID) {
+    const cycles = await getProductionCycles(userId);
+    if (cycles.length < 1) {
+      throw new Error("لازم تكمّل دورة إنتاج واحدة على الأقل قبل ما تكمّل.");
+    }
+  }
+
   const next = Math.min(current + 1, TOTAL_STAGES);
   await setCurrentStage(userId, next);
   revalidatePath("/game");
@@ -148,6 +169,7 @@ export async function restartGame() {
   await resetEquipment(userId);
   await resetHiring(userId);
   await resetRent(userId);
+  await resetProduction(userId);
   revalidatePath("/game");
 }
 
@@ -629,4 +651,77 @@ export async function confirmHiringDecision(
   await applyHiringDecision(userId, { newObligations, staticFields });
   revalidatePath("/game");
   return null;
+}
+
+export type ProductionFormState = { error: string } | { producedUnits: number } | null;
+
+/**
+ * دورة إنتاج واحدة: يتحقق من مورّد صالح وكمية صحيحة >= 0، يحسب
+ * التكلفة (مع خصم 15% لو الكمية المشتراة + المخزون الحالي >= 1.2×
+ * الطاقة)، يرفض سيرفر-سايد لو التكلفة أكبر من currentCapital، وإلا
+ * يخصم ويحدّث المخزون وينتج تلقائياً: producedUnits = min(المخزون بعد
+ * الشراء, الطاقة). يضيف دورة جديدة لـproductionCycles (بدون حذف
+ * السابقة) ويرجّع عدد الوحدات المنتجة للعرض.
+ */
+export async function confirmProductionPurchase(
+  _prevState: ProductionFormState,
+  formData: FormData
+): Promise<ProductionFormState> {
+  const userId = await requireUserId();
+
+  const supplierChoice = String(formData.get("supplierChoice") ?? "") as SupplierChoice | "";
+  if (supplierChoice !== "cheap" && supplierChoice !== "trusted") {
+    return { error: "لازم تختار مورّد." };
+  }
+
+  const rawQuantity = formData.get("purchaseQuantity");
+  const purchaseQuantity = Number(rawQuantity);
+  if (
+    rawQuantity === null ||
+    rawQuantity === "" ||
+    !Number.isFinite(purchaseQuantity) ||
+    !Number.isInteger(purchaseQuantity) ||
+    purchaseQuantity < 0
+  ) {
+    return { error: "الكمية لازم تكون رقم صحيح 0 أو أكثر." };
+  }
+
+  const equipmentSetup = await getEquipmentSetup(userId);
+  if (!equipmentSetup) {
+    return { error: "لازم تأكّد قرار المعدات قبل الإنتاج." };
+  }
+  const productionCapacity = getProductionCapacity(equipmentSetup.equipmentType, equipmentSetup.workerCount);
+
+  const currentInventory = await getRawMaterialInventory(userId);
+  const unitPrice = SUPPLIER_PRICE_PER_UNIT[supplierChoice];
+  let cost = purchaseQuantity * unitPrice;
+  const bulkEligible =
+    purchaseQuantity + currentInventory >= BULK_DISCOUNT_CAPACITY_MULTIPLIER * productionCapacity;
+  if (bulkEligible) {
+    cost = Math.round(cost * (1 - BULK_DISCOUNT_PERCENT / 100));
+  }
+
+  const currentCapital = await getCurrentCapital(userId);
+  if (cost > currentCapital) {
+    return {
+      error: `التكلفة (${cost.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+    };
+  }
+
+  const inventoryAfterPurchase = currentInventory + purchaseQuantity;
+  const producedUnits = Math.min(inventoryAfterPurchase, productionCapacity);
+  const inventoryDelta = purchaseQuantity - producedUnits;
+
+  const cycles = await getProductionCycles(userId);
+  const newCycle: ProductionCycle = {
+    cycleNumber: cycles.length + 1,
+    supplierChoice,
+    purchaseQuantity,
+    purchaseCost: cost,
+    producedUnits,
+  };
+
+  await applyProductionCycle(userId, { cost, inventoryDelta, newCycle });
+  revalidatePath("/game");
+  return { producedUnits };
 }
