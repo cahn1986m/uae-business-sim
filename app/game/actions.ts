@@ -69,6 +69,12 @@ import {
   getProductionCapacity,
   computeProduction,
   PROCESSING_MODE_QUALITY,
+  applyNaturalWaste,
+  getChemistTier,
+  rollChemistError,
+  applyChemistErrorWaste,
+  CHEMIST_ERROR_CONFIG,
+  QC_COST,
   type ProductionCycle,
   type SupplierChoice,
   type ProcessingMode,
@@ -659,21 +665,33 @@ export async function confirmHiringDecision(
 
 export type ProductionFormState =
   | { error: string }
-  | { producedUnits: number; quality: (typeof PROCESSING_MODE_QUALITY)[ProcessingMode]; smallUnits: number; largeUnits: number }
+  | {
+      producedUnits: number;
+      finalProducedUnits: number;
+      quality: (typeof PROCESSING_MODE_QUALITY)[ProcessingMode];
+      smallUnits: number;
+      largeUnits: number;
+      qcPurchased: boolean;
+      chemistErrorOccurred: boolean;
+      qcReport: string | null;
+    }
   | null;
 
 /**
  * دورة إنتاج واحدة: يتحقق من مورّد صالح، كمية شراء صحيحة >= 0، وضع
  * معالجة صالح (fast/precise)، نوع خط منتج صالح (single/diversified)،
  * ونسب تعبئة صحيحة تجمع 100 بالضبط. يحسب تكلفة الشراء (مع خصم 15% لو
- * الكمية المشتراة + المخزون الحالي >= 1.2× الطاقة)، يرفض سيرفر-سايد
- * لو التكلفة أكبر من currentCapital، وإلا يخصم، يحدّث المخزون
- * بالفرق الصافي (الكمية المشتراة ناقص rawMaterialConsumed فقط — الباقي
- * يتراكم للدورة الجاية)، وينتج تلقائياً حسب معادلة الجزء ب (تحل محل
- * min(inventory, capacity) القديمة بالكامل). smallUnits/largeUnits
- * تُحسب من producedUnits مباشرة (largeUnits = الباقي) لضمان تطابق
- * المجموع بالضبط دون فروقات تقريب. يضيف دورة جديدة لـproductionCycles
- * (بدون حذف السابقة) ويرجّع تفاصيل النتيجة للعرض.
+ * الكمية المشتراة + المخزون الحالي >= 1.2× الطاقة) + تكلفة QC الثابتة
+ * إن كان مفعّلاً، يرفض سيرفر-سايد لو المجموع أكبر من currentCapital،
+ * وإلا يخصم، يحدّث المخزون بالفرق الصافي (الكمية المشتراة ناقص
+ * rawMaterialConsumed فقط — الباقي يتراكم للدورة الجاية)، وينتج
+ * تلقائياً حسب معادلة الجزء ب. بعدها: هدر طبيعي 3% ثابت (دايماً)، ثم
+ * خطأ كيميائي احتمالي حسب chemistHired/chemistExperience (كل دورة
+ * لحالها، مستقل) — finalProducedUnits هو المصدر الوحيد للحقيقة بعد
+ * هيك. smallUnits/largeUnits تُحسب من finalProducedUnits (مو
+ * producedUnits الخام) بنفس نمط "largeUnits = الباقي" لتفادي فروقات
+ * التقريب. يضيف دورة جديدة لـproductionCycles (بدون حذف السابقة)
+ * ويرجّع تفاصيل النتيجة (بما فيها تقرير QC إن اشتُري) للعرض.
  */
 export async function confirmProductionPurchase(
   _prevState: ProductionFormState,
@@ -730,6 +748,8 @@ export async function confirmProductionPurchase(
     return { error: `نسب التعبئة لازم تجمع 100 بالضبط (المجموع الحالي: ${smallPercent + largePercent}).` };
   }
 
+  const qcPurchased = formData.get("qcPurchased") === "on";
+
   const equipmentSetup = await getEquipmentSetup(userId);
   if (!equipmentSetup) {
     return { error: "لازم تأكّد قرار المعدات قبل الإنتاج." };
@@ -738,17 +758,19 @@ export async function confirmProductionPurchase(
 
   const currentInventory = await getRawMaterialInventory(userId);
   const unitPrice = SUPPLIER_PRICE_PER_UNIT[supplierChoice];
-  let cost = purchaseQuantity * unitPrice;
+  let materialsCost = purchaseQuantity * unitPrice;
   const bulkEligible =
     purchaseQuantity + currentInventory >= BULK_DISCOUNT_CAPACITY_MULTIPLIER * productionCapacity;
   if (bulkEligible) {
-    cost = Math.round(cost * (1 - BULK_DISCOUNT_PERCENT / 100));
+    materialsCost = Math.round(materialsCost * (1 - BULK_DISCOUNT_PERCENT / 100));
   }
 
+  const totalCost = materialsCost + (qcPurchased ? QC_COST : 0);
+
   const currentCapital = await getCurrentCapital(userId);
-  if (cost > currentCapital) {
+  if (totalCost > currentCapital) {
     return {
-      error: `التكلفة (${cost.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+      error: `التكلفة الإجمالية (${totalCost.toLocaleString("ar")}${qcPurchased ? ` — شاملة ${QC_COST.toLocaleString("ar")} لفحص الجودة` : ""}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
     };
   }
 
@@ -760,15 +782,25 @@ export async function confirmProductionPurchase(
   );
   const inventoryDelta = purchaseQuantity - rawMaterialConsumed;
 
-  const smallUnits = Math.round((producedUnits * smallPercent) / 100);
-  const largeUnits = producedUnits - smallUnits;
+  // هدر طبيعي 3% ثابت (دايماً)، ثم خطأ كيميائي احتمالي حسب مستوى الخبرة
+  // المخزّن فعلياً من مرحلة التوظيف — كل دورة برمية مستقلة.
+  const hiringDecision = await getHiringDecision(userId);
+  const chemistTier = getChemistTier(hiringDecision?.chemistHired ?? false, hiringDecision?.chemistExperience ?? null);
+  const afterNaturalWaste = applyNaturalWaste(producedUnits);
+  const chemistErrorOccurred = rollChemistError(chemistTier);
+  const finalProducedUnits = chemistErrorOccurred
+    ? applyChemistErrorWaste(afterNaturalWaste, chemistTier)
+    : afterNaturalWaste;
+
+  const smallUnits = Math.round((finalProducedUnits * smallPercent) / 100);
+  const largeUnits = finalProducedUnits - smallUnits;
 
   const cycles = await getProductionCycles(userId);
   const newCycle: ProductionCycle = {
     cycleNumber: cycles.length + 1,
     supplierChoice,
     purchaseQuantity,
-    purchaseCost: cost,
+    purchaseCost: materialsCost,
     producedUnits,
     processingMode,
     quality: PROCESSING_MODE_QUALITY[processingMode],
@@ -776,9 +808,28 @@ export async function confirmProductionPurchase(
     productLineType,
     smallUnits,
     largeUnits,
+    chemistErrorOccurred,
+    qcPurchased,
+    finalProducedUnits,
   };
 
-  await applyProductionCycle(userId, { cost, inventoryDelta, newCycle });
+  await applyProductionCycle(userId, { cost: totalCost, inventoryDelta, newCycle });
   revalidatePath("/game");
-  return { producedUnits, quality: PROCESSING_MODE_QUALITY[processingMode], smallUnits, largeUnits };
+
+  const qcReport = qcPurchased
+    ? chemistErrorOccurred
+      ? `تقرير الجودة: اكتُشفت مشكلة — تلف ${Math.round(CHEMIST_ERROR_CONFIG[chemistTier].wastePercent * 100)}% من الدفعة بسبب خطأ تصنيع`
+      : "تقرير الجودة: لا توجد مشكلة"
+    : null;
+
+  return {
+    producedUnits,
+    finalProducedUnits,
+    quality: PROCESSING_MODE_QUALITY[processingMode],
+    smallUnits,
+    largeUnits,
+    qcPurchased,
+    chemistErrorOccurred,
+    qcReport,
+  };
 }

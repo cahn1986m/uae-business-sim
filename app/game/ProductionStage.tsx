@@ -7,6 +7,7 @@ import {
   SUPPLIER_PRICE_PER_UNIT,
   BULK_DISCOUNT_CAPACITY_MULTIPLIER,
   BULK_DISCOUNT_PERCENT,
+  QC_COST,
   type ProductionCycle,
   type SupplierChoice,
   type ProcessingMode,
@@ -81,16 +82,29 @@ function ProductionCycleForm({
   const [productLineType, setProductLineType] = useState<ProductLineType | "">("");
   const [smallPercent, setSmallPercent] = useState("");
   const [largePercent, setLargePercent] = useState("");
+  const [qcPurchased, setQcPurchased] = useState(false);
 
   if (state && "producedUnits" in state) {
     return (
       <div className="w-full max-w-md space-y-4">
         <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
-          <p className="text-sm font-medium">أنتجت {state.producedUnits.toLocaleString("ar")} وحدة هذه الدورة</p>
+          <p className="text-sm font-medium">
+            أنتجت {state.finalProducedUnits.toLocaleString("ar")} وحدة هذه الدورة
+          </p>
+          <p className="mt-1 text-xs text-zinc-500">
+            (قبل الهدر والأخطاء: {state.producedUnits.toLocaleString("ar")} وحدة)
+          </p>
           <p className="mt-1 text-xs text-zinc-500">
             جودة: {QUALITY_LABELS[state.quality]} — صغير: {state.smallUnits.toLocaleString("ar")} — كبير:{" "}
             {state.largeUnits.toLocaleString("ar")}
           </p>
+          {state.qcReport && (
+            <p
+              className={`mt-1 text-xs ${state.chemistErrorOccurred ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}
+            >
+              {state.qcReport}
+            </p>
+          )}
           <p className="mt-1 text-xs text-zinc-500">
             دورة رقم {cycles.length} — مخزون المواد الخام الحالي: {rawMaterialInventory.toLocaleString("ar")}
           </p>
@@ -264,6 +278,23 @@ function ProductionCycleForm({
           المجموع الحالي: {percentSum}%{!percentsValid && " — لازم يكون 100 بالضبط"}
         </p>
       </div>
+
+      <label
+        htmlFor="qcPurchased"
+        className="flex items-center justify-between rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
+      >
+        <span className="text-sm font-medium">
+          فحص جودة (QC) — {QC_COST.toLocaleString("ar")} درهم
+        </span>
+        <input
+          id="qcPurchased"
+          name="qcPurchased"
+          type="checkbox"
+          checked={qcPurchased}
+          onChange={(e) => setQcPurchased(e.target.checked)}
+          className="h-4 w-4"
+        />
+      </label>
 
       {state?.error && (
         <p className="rounded-md bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">
