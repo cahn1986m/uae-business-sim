@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { confirmMarketResearchPurchase, type MarketResearchFormState } from "./actions";
 import { MARKET_RESEARCH_SERVICES, type MarketResearchResults } from "@/lib/market-research";
+import DramaticAlert from "./DramaticAlert";
 
 /**
  * واجهة مرحلة "دراسة السوق" — قبل التأكيد: قائمة 4 خدمات بسعر ثابت
@@ -36,12 +37,18 @@ export default function MarketResearchStage({
           </div>
         )}
 
-        {results.outcomes.consultants && (
-          <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
-            <p className="font-medium">استشاريين من إعلانات</p>
-            <p className="mt-1 text-sm">{results.outcomes.consultants.message}</p>
-          </div>
-        )}
+        {results.outcomes.consultants &&
+          (results.outcomes.consultants.success ? (
+            <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
+              <p className="font-medium">استشاريين من إعلانات</p>
+              <p className="mt-1 text-sm">{results.outcomes.consultants.message}</p>
+            </div>
+          ) : (
+            <DramaticAlert>
+              <p className="font-medium">استشاريين من إعلانات</p>
+              <p className="mt-1 text-sm">{results.outcomes.consultants.message}</p>
+            </DramaticAlert>
+          ))}
       </div>
     );
   }

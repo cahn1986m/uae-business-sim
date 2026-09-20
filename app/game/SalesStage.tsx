@@ -23,6 +23,7 @@ import {
   type AdTarget,
   type WholesalePaymentMethod,
 } from "@/lib/sales";
+import DramaticAlert from "./DramaticAlert";
 
 const CHANNELS: SalesChannel[] = ["discount-market", "wholesaler", "boutique-trader"];
 const AD_TARGETS: AdTarget[] = ["premium", "wholesale", "discount"];
@@ -54,14 +55,20 @@ export default function SalesStage({
       {locationBonusResults.length > 0 && (
         <div className="space-y-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
           <p className="text-sm font-semibold">أثر الموقع عند دخولك المرحلة</p>
-          {locationBonusResults.map((r, i) => (
-            <p
-              key={i}
-              className={`text-xs ${r.success ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
-            >
-              {r.message}
-            </p>
-          ))}
+          {locationBonusResults.map((r, i) =>
+            r.type === "hotel-2star" && !r.success ? (
+              <DramaticAlert key={i}>
+                <p className="text-xs">{r.message}</p>
+              </DramaticAlert>
+            ) : (
+              <p
+                key={i}
+                className={`text-xs ${r.success ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
+              >
+                {r.message}
+              </p>
+            )
+          )}
         </div>
       )}
 

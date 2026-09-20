@@ -9,6 +9,7 @@ import {
   SELF_BASE_DAYS,
   type LicensingResult,
 } from "@/lib/licensing";
+import DramaticAlert from "./DramaticAlert";
 
 const PATH_LABELS = {
   agency: "شركة/وكيل تراخيص",
@@ -54,17 +55,14 @@ export default function LicensingStage({ result }: { result: LicensingResult | n
 
             {result.events && result.events.length > 0 ? (
               result.events.map((event) => (
-                <div
-                  key={event.key}
-                  className="rounded-md border border-zinc-200 p-3 text-right text-sm dark:border-zinc-800"
-                >
+                <DramaticAlert key={event.key}>
                   <p className="font-medium">{event.label}</p>
-                  <p className="mt-1 text-xs text-zinc-500">
+                  <p className="mt-1 text-xs">
                     {event.extraCost > 0 && `+${event.extraCost.toLocaleString("ar")} تكلفة`}
                     {event.extraCost > 0 && event.extraDays > 0 && " — "}
                     {event.extraDays > 0 && `+${event.extraDays} يوم`}
                   </p>
-                </div>
+                </DramaticAlert>
               ))
             ) : (
               <p className="text-sm text-zinc-500">ما صار أي مفاجآت هالمرة.</p>

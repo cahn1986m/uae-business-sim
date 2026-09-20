@@ -51,6 +51,7 @@ import HiringStage from "./HiringStage";
 import ProductionStage from "./ProductionStage";
 import SalesStage from "./SalesStage";
 import ResultStage from "./ResultStage";
+import DramaticAlert from "./DramaticAlert";
 
 // المرحلة الحالية تُقرا من قاعدة البيانات بكل مرة — لازم رندر ديناميكي.
 export const dynamic = "force-dynamic";
@@ -273,9 +274,11 @@ export default async function GamePage() {
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center">
       {resignationNotices.length > 0 && (
-        <div className="w-full max-w-md space-y-1 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+        <div className="w-full max-w-md space-y-2">
           {resignationNotices.map((notice, i) => (
-            <p key={i}>⚠️ {notice}</p>
+            <DramaticAlert key={i}>
+              <p className="text-sm">{notice}</p>
+            </DramaticAlert>
           ))}
         </div>
       )}

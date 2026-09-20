@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { useActionState } from "react";
 import { confirmProductionPurchase, type ProductionFormState } from "./actions";
+import DramaticAlert from "./DramaticAlert";
 import {
   SUPPLIER_PRICE_PER_UNIT,
   BULK_DISCOUNT_CAPACITY_MULTIPLIER,
@@ -98,13 +99,16 @@ function ProductionCycleForm({
             جودة: {QUALITY_LABELS[state.quality]} — صغير: {state.smallUnits.toLocaleString("ar")} — كبير:{" "}
             {state.largeUnits.toLocaleString("ar")}
           </p>
-          {state.qcReport && (
-            <p
-              className={`mt-1 text-xs ${state.chemistErrorOccurred ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}
-            >
-              {state.qcReport}
-            </p>
-          )}
+          {state.qcReport &&
+            (state.chemistErrorOccurred ? (
+              <div className="mt-1">
+                <DramaticAlert>
+                  <p className="text-xs">{state.qcReport}</p>
+                </DramaticAlert>
+              </div>
+            ) : (
+              <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">{state.qcReport}</p>
+            ))}
           <p className="mt-1 text-xs text-zinc-500">
             دورة رقم {cycles.length} — مخزون المواد الخام الحالي: {rawMaterialInventory.toLocaleString("ar")}
           </p>
