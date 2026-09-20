@@ -198,6 +198,17 @@ const dict: Record<string, Entry> = {
   },
   "licensing.path.agency": { ar: "شركة/وكيل تراخيص", en: "Licensing company/agent" },
   "licensing.path.self": { ar: "ترخيص بنفسك", en: "License it yourself" },
+  // مفاجآت الترخيص الذاتي (الجزء ب من ميزة اللغة) — أكواد مخزَّنة بـ
+  // licensingResult.events بدل نص عربي جاهز.
+  licensing_missing_docs: { ar: "نواقص بالطلب", en: "Missing items in the application" },
+  licensing_site_inspection: {
+    ar: "كشف ميداني — تعديلات مبنى مطلوبة",
+    en: "Site inspection — building modifications required",
+  },
+  licensing_civil_defense: {
+    ar: "متطلبات دفاع مدني/سلامة (مواد قابلة للاشتعال)",
+    en: "Civil defense/safety requirements (flammable materials)",
+  },
   "licensing.eventCost": { ar: "+{cost} تكلفة", en: "+{cost} cost" },
   "licensing.eventDays": { ar: "+{days} يوم", en: "+{days} days" },
 

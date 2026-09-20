@@ -13,6 +13,15 @@ import DramaticAlert from "./DramaticAlert";
 import { t, type Language } from "@/lib/i18n";
 
 /**
+ * اسم حدث الترخيص — الشكل الحالي `code` يُترجم عبر t()؛ توافق رجعي
+ * مع بيانات قديمة (نص عربي جاهز `label` بدل كود) — تُعرض كما هي.
+ */
+function getEventText(event: { code?: string; label?: string }, language: Language): string {
+  if (event.code) return t(event.code, language);
+  return event.label ?? "";
+}
+
+/**
  * واجهة مرحلة "الترخيص" — المسارين معروضين بتكلفتهم/مدتهم بوضوح (مو
  * محايدين بصرياً، الفرق معلن). المفاجآت داخل مسار "self" ما تظهر إلا
  * بعد التأكيد، بنفس أسلوب عرض نتائج دراسة السوق.
@@ -52,7 +61,7 @@ export default function LicensingStage({ result, language }: { result: Licensing
             {result.events && result.events.length > 0 ? (
               result.events.map((event) => (
                 <DramaticAlert key={event.key} language={language}>
-                  <p className="font-medium">{event.label}</p>
+                  <p className="font-medium">{getEventText(event, language)}</p>
                   <p className="mt-1 text-xs">
                     {event.extraCost > 0 &&
                       t("licensing.eventCost", language, { cost: event.extraCost.toLocaleString("ar") })}

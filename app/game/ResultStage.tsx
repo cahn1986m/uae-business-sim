@@ -187,7 +187,9 @@ export default function ResultStage({
               licensingResult.events.map((e) => (
                 <p key={e.key} className="text-xs text-zinc-600 dark:text-zinc-400">
                   {t("result.surpriseLine", language, {
-                    label: e.label,
+                    label: (e as { code?: string; label?: string }).code
+                      ? t((e as { code: string }).code, language)
+                      : ((e as { label?: string }).label ?? ""),
                     cost: e.extraCost.toLocaleString("ar"),
                     days: e.extraDays,
                   })}

@@ -16,34 +16,32 @@ export const SELF_UNREADY_EXTRA_DAYS = 5;
 
 export type SelfLicensingEventKey = "missingDocs" | "siteInspection" | "safetyRequirements";
 
+/**
+ * كود كل حدث (ميزة اللغة، الجزء ب) — بدل نص عربي جاهز نخزّن الكود بس
+ * ونترجمه وقت العرض عبر t() (lib/i18n.ts). نفس الاحتمالات والتكاليف
+ * والأيام بدون أي تغيير.
+ */
+export type SelfLicensingEventCode =
+  | "licensing_missing_docs"
+  | "licensing_site_inspection"
+  | "licensing_civil_defense";
+
 /** الأحداث الثلاثة — مستقلة عن بعضها، كل وحدة تُقيَّم لحالها. */
 export const SELF_LICENSING_EVENTS: {
   key: SelfLicensingEventKey;
   chance: number;
   extraCost: number;
   extraDays: number;
-  label: string;
+  code: SelfLicensingEventCode;
 }[] = [
-  { key: "missingDocs", chance: 0.35, extraCost: 0, extraDays: 5, label: "نواقص بالطلب" },
-  {
-    key: "siteInspection",
-    chance: 0.25,
-    extraCost: 3000,
-    extraDays: 8,
-    label: "كشف ميداني — تعديلات مبنى مطلوبة",
-  },
-  {
-    key: "safetyRequirements",
-    chance: 0.2,
-    extraCost: 4000,
-    extraDays: 6,
-    label: "متطلبات دفاع مدني/سلامة (مواد قابلة للاشتعال)",
-  },
+  { key: "missingDocs", chance: 0.35, extraCost: 0, extraDays: 5, code: "licensing_missing_docs" },
+  { key: "siteInspection", chance: 0.25, extraCost: 3000, extraDays: 8, code: "licensing_site_inspection" },
+  { key: "safetyRequirements", chance: 0.2, extraCost: 4000, extraDays: 6, code: "licensing_civil_defense" },
 ];
 
 export type SelfLicensingEvent = {
   key: SelfLicensingEventKey;
-  label: string;
+  code: SelfLicensingEventCode;
   extraCost: number;
   extraDays: number;
 };
@@ -64,7 +62,7 @@ export type LicensingResult = {
 export function rollSelfLicensingEvents(): SelfLicensingEvent[] {
   return SELF_LICENSING_EVENTS.filter((e) => Math.random() < e.chance).map((e) => ({
     key: e.key,
-    label: e.label,
+    code: e.code,
     extraCost: e.extraCost,
     extraDays: e.extraDays,
   }));
