@@ -35,15 +35,32 @@ export type SalesTransaction = {
   totalRevenue: number;
 };
 
+/** شكل عنصر الالتزام الشهري (نظام عابر للمراحل — إيجار/معدات/رواتب/حريق) — نسخة محلية بسيطة، بدون استيراد من lib/db.ts. */
+export type MonthlyObligation = { type: string; monthlyAmount: number };
+
 /**
- * تكلفة الوحدة الفعلية — إجمالي purchaseCost لكل دورات الإنتاج مقسوم
- * على إجمالي finalProducedUnits لكلهم. رقم ثابت يُحسب مرة وحدة عند
- * أول عملية بيع (يُخزَّن بـsaleUnitCost بعدها)، مو معاد حسابه كل دورة.
+ * تكلفة الوحدة الفعلية (تصحيح شامل، أرقام حقيقية) — (إجمالي purchaseCost
+ * لكل دورات الإنتاج + إجمالي تكلفة العمالة المخصَّصة) ÷ إجمالي
+ * finalProducedUnits لكلهم. تكلفة العمالة لكل دورة = (مجموع الرواتب
+ * الشهرية لعناصر monthlyObligations من نوع "production-workers" ÷ 30)
+ * × daysConsumedThisCycle لتلك الدورة تحديداً — عمال الإنتاج ثابتون
+ * طول اللعبة (قرار مرة وحدة بمرحلة المعدات)، فالفرق بين الدورات هون
+ * هو مدتها فقط. رقم يُحسب مرة وحدة عند أول عملية بيع (يُخزَّن
+ * بـsaleUnitCost بعدها)، مو معاد حسابه كل دورة.
  */
-export function computeUnitCost(cycles: ProductionCycle[]): number {
-  const totalCost = cycles.reduce((sum, c) => sum + c.purchaseCost, 0);
+export function computeUnitCost(cycles: ProductionCycle[], monthlyObligations: MonthlyObligation[]): number {
+  const productionWorkersMonthlyTotal = monthlyObligations
+    .filter((o) => o.type === "production-workers")
+    .reduce((sum, o) => sum + o.monthlyAmount, 0);
+
+  const totalMaterialCost = cycles.reduce((sum, c) => sum + c.purchaseCost, 0);
+  const totalLaborCost = cycles.reduce(
+    (sum, c) => sum + (productionWorkersMonthlyTotal / 30) * c.daysConsumedThisCycle,
+    0
+  );
   const totalUnits = cycles.reduce((sum, c) => sum + c.finalProducedUnits, 0);
-  return totalUnits > 0 ? totalCost / totalUnits : 0;
+
+  return totalUnits > 0 ? (totalMaterialCost + totalLaborCost) / totalUnits : 0;
 }
 
 export function getRevenuePerUnit(unitCost: number, marginRate: number): number {

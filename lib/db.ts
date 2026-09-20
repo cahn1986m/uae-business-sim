@@ -5,7 +5,7 @@ import type { FinancingDecision } from "@/lib/financing";
 import type { LicensingPath, LicensingResult } from "@/lib/licensing";
 import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
 import type { EquipmentResult, EquipmentType } from "@/lib/equipment";
-import type { HiringDecision } from "@/lib/hiring";
+import { VISA_COVERAGE_DAYS, EARLY_RESIGNATION_CHANCE, type HiringDecision } from "@/lib/hiring";
 import type { ProductionCycle } from "@/lib/production";
 import {
   computeLocationBonus,
@@ -15,6 +15,7 @@ import {
   type LocationBonusResult,
   type SalesTransaction,
   type PendingReceivable,
+  type MonthlyObligation,
 } from "@/lib/sales";
 
 if (!process.env.DATABASE_URL) {
@@ -240,18 +241,32 @@ export async function getDaysConsumed(userId: string): Promise<number> {
 /**
  * يزيد daysConsumed بعدد الأيام المعطى (مجمّع مع أي قيمة سابقة، مو
  * استبدال). المصدر الوحيد يلي المفروض يغيّر daysConsumed — أي مكان
- * تاني بيقرا بس. بعد التحديث: يفحص pendingReceivables (تسهيلات تجار
- * الجملة، مرحلة البيع الجزء ج) — أي عنصر collected=false ووصل
- * dueAtDaysConsumed <= daysConsumed الجديد يتحصَّل تلقائياً هون (يُضاف
- * amount لـcurrentCapital وcollected يصير true)، بخطوة واحدة ذرية، بدون
- * أي فعل إضافي من اللاعب. هاي نفس الدالة المشتركة لكل الاستدعاءات
- * (إيجار/معدات/إنتاج ولاحقاً) — ما في نسخة منفصلة للتحصيل.
+ * تاني بيقرا بس. بعد التحديث، بنفس الاستدعاء الذري الواحد، فحصان
+ * بالتسلسل: **(1)** pendingReceivables (تسهيلات تجار الجملة، مرحلة
+ * البيع الجزء ج) — أي عنصر collected=false ووصل dueAtDaysConsumed <=
+ * daysConsumed الجديد يتحصَّل تلقائياً (يُضاف amount لـcurrentCapital).
+ * **(2)** خطر استقالة مبكرة (كيميائي/محاسب، تصحيح الأرقام الحقيقية) —
+ * لكل موظف حالي hired=true ولسا ضمن نافذة الإقامة (أقل من
+ * VISA_COVERAGE_DAYS يوم من visaStartedAt، قيمة daysConsumed وقت
+ * التوظيف نفسها — مو تاريخ حقيقي)، فحص احتمال EARLY_RESIGNATION_CHANCE
+ * لكل استدعاء (مو لكل يوم). عند الاستقالة: الدور يصير false/الخبرة
+ * null، عنصر الراتب المطابق يُشال من monthlyObligations، وإشعار نصي
+ * يُضاف لـresignationNotices (يُقرا ويُصفَّر مرة وحدة بـ
+ * consumeAndClearResignationNotices) — بدون أي استرداد لتكلفة الإقامة.
+ * هاي نفس الدالة المشتركة لكل الاستدعاءات (إيجار/معدات/إنتاج ولاحقاً)
+ * — ما في نسخة منفصلة لأي من الفحصين.
  */
 export async function consumeGameDays(userId: string, days: number): Promise<number> {
   const rows = await sql`
     SELECT
       (data->>'daysConsumed')::int AS days_consumed,
-      data->'pendingReceivables' AS pending_receivables
+      data->'pendingReceivables' AS pending_receivables,
+      data->>'chemistHired' AS chemist_hired,
+      (data->>'chemistVisaStartedAt')::int AS chemist_visa_started_at,
+      data->>'accountantHired' AS accountant_hired,
+      (data->>'accountantVisaStartedAt')::int AS accountant_visa_started_at,
+      data->'monthlyObligations' AS monthly_obligations,
+      data->'resignationNotices' AS resignation_notices
     FROM game_state
     WHERE user_id = ${userId}
   `;
@@ -269,29 +284,87 @@ export async function consumeGameDays(userId: string, days: number): Promise<num
     return r;
   });
 
+  let monthlyObligations = (
+    (row?.monthly_obligations as { type: string; monthlyAmount: number }[] | null) ?? []
+  ).slice();
+  const resignationNotices = ((row?.resignation_notices as string[] | null) ?? []).slice();
+  const patch: Record<string, unknown> = {};
+
+  const checkResignation = (
+    hiredRaw: string | null | undefined,
+    visaStartedAt: number | null | undefined,
+    hiredField: string,
+    experienceField: string,
+    obligationType: string,
+    label: string
+  ) => {
+    if (hiredRaw !== "true") return;
+    const started = typeof visaStartedAt === "number" ? visaStartedAt : 0;
+    if (newDaysConsumed - started >= VISA_COVERAGE_DAYS) return;
+    if (Math.random() < EARLY_RESIGNATION_CHANCE) {
+      patch[hiredField] = false;
+      patch[experienceField] = null;
+      monthlyObligations = monthlyObligations.filter((o) => o.type !== obligationType);
+      resignationNotices.push(`استقال ${label} بشكل مفاجئ — خسرت تكلفة إقامته.`);
+    }
+  };
+
+  checkResignation(
+    row?.chemist_hired,
+    row?.chemist_visa_started_at,
+    "chemistHired",
+    "chemistExperience",
+    "salary-chemist",
+    "الكيميائي"
+  );
+  checkResignation(
+    row?.accountant_hired,
+    row?.accountant_visa_started_at,
+    "accountantHired",
+    "accountantExperience",
+    "salary-accountant",
+    "المحاسب"
+  );
+
+  patch.daysConsumed = newDaysConsumed;
+  patch.pendingReceivables = updatedReceivables;
+  patch.monthlyObligations = monthlyObligations;
+  patch.resignationNotices = resignationNotices;
+
   const updateRows = await sql`
     UPDATE game_state
     SET data = jsonb_set(
-          jsonb_set(
-            jsonb_set(
-              data,
-              '{daysConsumed}',
-              to_jsonb(${newDaysConsumed}::int)
-            ),
-            '{pendingReceivables}',
-            ${JSON.stringify(updatedReceivables)}::jsonb
-          ),
+          data,
           '{currentCapital}',
           to_jsonb(
             COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
             + ${collectedAmount}::int
           )
-        ),
+        ) || ${JSON.stringify(patch)}::jsonb,
         updated_at = now()
     WHERE user_id = ${userId}
     RETURNING (data->>'daysConsumed')::int AS days_consumed
   `;
   return updateRows[0]?.days_consumed ?? newDaysConsumed;
+}
+
+/**
+ * يرجّع إشعارات الاستقالة المعلّقة ويصفّرها بنفس اللحظة (ضربة UPDATE
+ * وحدة تُرجّع القيمة القديمة قبل التصفير) — كل إشعار يُعرض مرة وحدة
+ * بس عند أول زيارة تالية لأي شاشة.
+ */
+export async function consumeAndClearResignationNotices(userId: string): Promise<string[]> {
+  const rows = await sql`
+    WITH old AS (
+      SELECT data->'resignationNotices' AS notices FROM game_state WHERE user_id = ${userId}
+    )
+    UPDATE game_state
+    SET data = jsonb_set(data, '{resignationNotices}', '[]'::jsonb),
+        updated_at = now()
+    WHERE user_id = ${userId}
+    RETURNING (SELECT notices FROM old) AS previous_notices
+  `;
+  return (rows[0]?.previous_notices as string[] | null) ?? [];
 }
 
 /** يرجّع pendingReceivables الحالية (تسهيلات تجار الجملة) — [] لو ما في. */
@@ -526,7 +599,10 @@ export async function applyEquipmentDecision(
   userId: string,
   params: {
     totalDeduction: number;
-    newObligations: { type: "equipment" | "production-workers"; monthlyAmount: number }[];
+    newObligations: {
+      type: "equipment" | "production-workers" | "fire-safety-compliance";
+      monthlyAmount: number;
+    }[];
     staticFields: Record<string, unknown>;
   }
 ): Promise<void> {
@@ -552,9 +628,9 @@ export async function applyEquipmentDecision(
 }
 
 /**
- * يمسح حقول المعدات، ويشيل بس عناصر "equipment" و"production-workers"
- * من monthlyObligations (مو المصفوفة كلها — عنصر "rent" لازم يضل زي
- * ما هو) — تُستخدم مع "إعادة البدء".
+ * يمسح حقول المعدات، ويشيل بس عناصر "equipment"/"production-workers"/
+ * "fire-safety-compliance" من monthlyObligations (مو المصفوفة كلها —
+ * عنصر "rent" لازم يضل زي ما هو) — تُستخدم مع "إعادة البدء".
  */
 export async function resetEquipment(userId: string): Promise<void> {
   await sql`
@@ -566,7 +642,7 @@ export async function resetEquipment(userId: string): Promise<void> {
             (
               SELECT jsonb_agg(elem)
               FROM jsonb_array_elements(COALESCE(data->'monthlyObligations', '[]'::jsonb)) elem
-              WHERE elem->>'type' NOT IN ('equipment', 'production-workers')
+              WHERE elem->>'type' NOT IN ('equipment', 'production-workers', 'fire-safety-compliance')
             ),
             '[]'::jsonb
           )
@@ -610,22 +686,31 @@ export async function getHiringDecision(userId: string): Promise<HiringDecision 
 
 /**
  * يخزّن قرار التوظيف — الأربعة حقول دفعة وحدة، ويضيف أي التزامات
- * رواتب جديدة (0-2 عنصر) لـmonthlyObligations. بدون أي خصم فوري من
- * currentCapital (الراتب التزام مستقبلي بس).
+ * رواتب جديدة (0-2 عنصر) لـmonthlyObligations، ويخصم تكلفة إقامة
+ * الموظفين الجدد (visaDeduction، 5,500 لكل موظف) من currentCapital
+ * فوراً — كل شي بضربة UPDATE وحدة (atomic).
  */
 export async function applyHiringDecision(
   userId: string,
   params: {
     newObligations: { type: "salary-chemist" | "salary-accountant"; monthlyAmount: number }[];
+    visaDeduction: number;
     staticFields: Record<string, unknown>;
   }
 ): Promise<void> {
   await sql`
     UPDATE game_state
     SET data = jsonb_set(
-          data,
-          '{monthlyObligations}',
-          COALESCE(data->'monthlyObligations', '[]'::jsonb) || ${JSON.stringify(params.newObligations)}::jsonb
+          jsonb_set(
+            data,
+            '{monthlyObligations}',
+            COALESCE(data->'monthlyObligations', '[]'::jsonb) || ${JSON.stringify(params.newObligations)}::jsonb
+          ),
+          '{currentCapital}',
+          to_jsonb(
+            COALESCE((data->>'currentCapital')::int, (data->>'startingCapital')::int, 0)
+            - ${params.visaDeduction}::int
+          )
         ) || ${JSON.stringify(params.staticFields)}::jsonb,
         updated_at = now()
     WHERE user_id = ${userId}
@@ -633,15 +718,17 @@ export async function applyHiringDecision(
 }
 
 /**
- * يمسح الأربعة حقول، ويشيل بس عناصر "salary-chemist" و
- * "salary-accountant" من monthlyObligations (بدون التأثير على rent/
- * equipment/production-workers) — تُستخدم مع "إعادة البدء".
+ * يمسح الأربعة حقول + حقول الإقامة (visaStartedAt/visaCostPaid لكل
+ * دور)، ويشيل بس عناصر "salary-chemist" و"salary-accountant" من
+ * monthlyObligations (بدون التأثير على rent/equipment/production-
+ * workers/fire-safety-compliance) — تُستخدم مع "إعادة البدء".
  */
 export async function resetHiring(userId: string): Promise<void> {
   await sql`
     UPDATE game_state
     SET data = jsonb_set(
-          data - 'chemistHired' - 'chemistExperience' - 'accountantHired' - 'accountantExperience',
+          data - 'chemistHired' - 'chemistExperience' - 'accountantHired' - 'accountantExperience'
+               - 'chemistVisaStartedAt' - 'chemistVisaCostPaid' - 'accountantVisaStartedAt' - 'accountantVisaCostPaid',
           '{monthlyObligations}',
           COALESCE(
             (
@@ -761,6 +848,16 @@ export async function getSalesTransactions(userId: string): Promise<SalesTransac
     WHERE user_id = ${userId}
   `;
   return (rows[0]?.transactions as SalesTransaction[] | null) ?? [];
+}
+
+/** مصفوفة الالتزامات الشهرية الكاملة (إيجار/معدات/رواتب/حريق) — [] لو ما في. */
+export async function getMonthlyObligations(userId: string): Promise<MonthlyObligation[]> {
+  const rows = await sql`
+    SELECT data->'monthlyObligations' AS obligations
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  return (rows[0]?.obligations as MonthlyObligation[] | null) ?? [];
 }
 
 /**

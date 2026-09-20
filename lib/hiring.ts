@@ -38,7 +38,7 @@ export const HIRING_ROLES: {
       {
         choice: "senior",
         label: "مرشح سينيور",
-        monthlySalary: 5500,
+        monthlySalary: 10000,
         bio: "خبرة 12 سنة بتصنيع العطور والمستحضرات، اشتغل سابقاً بمصنع إقليمي معروف — دقيق جداً وبيعرف يعالج مشاكل التركيبة بسرعة.",
       },
       {
@@ -56,13 +56,13 @@ export const HIRING_ROLES: {
       {
         choice: "junior",
         label: "مرشح جونيور",
-        monthlySalary: 2000,
+        monthlySalary: 2500,
         bio: "حديث التخرج بمحاسبة، شغل شهرين متدرب بمكتب محاسبة — منظم بس بيحتاج مراجعة على فواتيره لأول فترة.",
       },
       {
         choice: "senior",
         label: "مرشح سينيور",
-        monthlySalary: 4500,
+        monthlySalary: 10000,
         bio: "خبرة 10 سنين بمحاسبة شركات تصنيع صغيرة ومتوسطة، متعوّد على التحصيل والفواتير المعقدة — نادراً ما يفوته شي.",
       },
       {
@@ -85,3 +85,22 @@ export type HiringDecision = {
   accountantHired: boolean;
   accountantExperience: ExperienceLevel;
 };
+
+/**
+ * تكلفة إقامة كل موظف (سنتين) — تُخصم فوراً عند التأكيد، فوق الالتزام
+ * الشهري للراتب. غير مستردة إطلاقاً حتى لو استقال الموظف مبكراً.
+ */
+export const VISA_COST = 5500;
+
+/**
+ * نافذة تغطية الإقامة بمقياس daysConsumed (محاكاة، مو وقت حقيقي) —
+ * 730 يوم من visaStartedAt (قيمة daysConsumed وقت التأكيد، مو تاريخ
+ * حقيقي). بعدها ما في فحص استقالة إطلاقاً لنفس الموظف.
+ */
+export const VISA_COVERAGE_DAYS = 730;
+
+/**
+ * احتمال استقالة مبكرة لكل استدعاء لـconsumeGameDays (مو لكل يوم) —
+ * افتراض معقول، قابل للتعديل لاحقاً لو تبيّن رقم أنسب بالتجربة.
+ */
+export const EARLY_RESIGNATION_CHANCE = 0.03;

@@ -24,6 +24,7 @@ import {
   getPendingReceivables,
   getSaleUnitCost,
   getLocationBonusResults,
+  consumeAndClearResignationNotices,
 } from "@/lib/db";
 import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
 import type { MarketResearchResults } from "@/lib/market-research";
@@ -73,6 +74,11 @@ export default async function GamePage() {
 
   const currentStage = await getCurrentStage(session.user.id);
   const stage = getStageById(currentStage);
+
+  // إشعارات استقالة مبكرة (كيميائي/محاسب، تصحيح الأرقام الحقيقية) —
+  // تُقرا وتُصفَّر بنفس اللحظة (مرة وحدة بس)، تُعرض عند أول زيارة تالية
+  // لأي شاشة بغض النظر عن المرحلة الحالية.
+  const resignationNotices = await consumeAndClearResignationNotices(session.user.id);
   const isLastStage = currentStage >= TOTAL_STAGES;
   const isMarketResearchStage = currentStage === MARKET_RESEARCH_STAGE_ID;
   const isFinancingStage = currentStage === FINANCING_STAGE_ID;
@@ -266,6 +272,14 @@ export default async function GamePage() {
 
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-6 px-4 py-16 text-center">
+      {resignationNotices.length > 0 && (
+        <div className="w-full max-w-md space-y-1 rounded-md border border-red-300 bg-red-50 px-4 py-2 text-sm text-red-800 dark:border-red-800 dark:bg-red-950 dark:text-red-200">
+          {resignationNotices.map((notice, i) => (
+            <p key={i}>⚠️ {notice}</p>
+          ))}
+        </div>
+      )}
+
       {financingDecision && remainingDays !== null && (
         <FinancingCountdown
           remainingDays={remainingDays}

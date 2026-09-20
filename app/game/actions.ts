@@ -38,6 +38,7 @@ import {
   getDaysConsumed,
   getSalesTransactions,
   getSaleUnitCost,
+  getMonthlyObligations,
   applySaleTransaction,
   applyCreditSaleTransaction,
   resetSales,
@@ -74,8 +75,14 @@ import {
   type NegotiationResult,
   type RentResult,
 } from "@/lib/rent";
-import { getEquipmentOption, SPACE_BUDGET, WORKER_MONTHLY_SALARY, type EquipmentResult } from "@/lib/equipment";
-import { getHiringRole } from "@/lib/hiring";
+import {
+  getEquipmentOption,
+  SPACE_BUDGET,
+  WORKER_MONTHLY_SALARY,
+  FIRE_SAFETY_MONTHLY_AMOUNT,
+  type EquipmentResult,
+} from "@/lib/equipment";
+import { getHiringRole, VISA_COST } from "@/lib/hiring";
 import {
   SUPPLIER_PRICE_PER_UNIT,
   BULK_DISCOUNT_CAPACITY_MULTIPLIER,
@@ -90,6 +97,7 @@ import {
   CHEMIST_ERROR_CONFIG,
   QC_COST,
   getProductionCycleDays,
+  computePieceStorageCapacity,
   type ProductionCycle,
   type SupplierChoice,
   type ProcessingMode,
@@ -641,11 +649,15 @@ export async function confirmEquipmentDecision(
     workerMonthlyTotal,
   };
 
-  const newObligations: { type: "equipment" | "production-workers"; monthlyAmount: number }[] = [];
+  const newObligations: {
+    type: "equipment" | "production-workers" | "fire-safety-compliance";
+    monthlyAmount: number;
+  }[] = [];
   if (monthlyAmount !== undefined) {
     newObligations.push({ type: "equipment", monthlyAmount });
   }
   newObligations.push({ type: "production-workers", monthlyAmount: workerMonthlyTotal });
+  newObligations.push({ type: "fire-safety-compliance", monthlyAmount: FIRE_SAFETY_MONTHLY_AMOUNT });
 
   await applyEquipmentDecision(userId, {
     totalDeduction: amountPaidNow,
@@ -671,9 +683,14 @@ export type HiringFormState = { error: string } | null;
 /**
  * يتحقق إن الدورين الاثنين (كيميائي ومحاسب) عندهم قرار صالح (junior/
  * senior/none) — الدوران مستقلان عن بعض، بس لازم الاثنين يتقرروا مع
- * بعض بنفس التأكيد. بدون أي فحص currentCapital (راتب = التزام مستقبلي
- * بس، مو خصم فوري). يضيف 0-2 عنصر رواتب لـmonthlyObligations حسب
- * القرارات، ويخزّن الأربعة حقول النهائية.
+ * بعض بنفس التأكيد. يضيف 0-2 عنصر رواتب لـmonthlyObligations حسب
+ * القرارات (راتب = التزام مستقبلي، بدون خصم فوري). **بالإضافة:**
+ * تكلفة إقامة فورية (VISA_COST، 5,500) لكل موظف جديد — تُخصم دفعة
+ * وحدة من currentCapital، يُرفض التوظيف سيرفر-سايد لو المجموع (لموظف
+ * واحد أو الاثنين معاً) أكبر من الرصيد المتاح. visaStartedAt المخزَّن
+ * لكل دور هو daysConsumed الحالي وقت التأكيد (مقياس محاكاة، مو تاريخ
+ * حقيقي) — أساس نافذة خطر الاستقالة المبكرة (VISA_COVERAGE_DAYS) اللي
+ * consumeGameDays بيفحصها لاحقاً.
  */
 export async function confirmHiringDecision(
   _prevState: HiringFormState,
@@ -696,6 +713,20 @@ export async function confirmHiringDecision(
     return { error: "لازم تقرر بخصوص المحاسب (وظّف أو لا توظف)." };
   }
 
+  const hiredCount = (chemistCandidate.choice !== "none" ? 1 : 0) + (accountantCandidate.choice !== "none" ? 1 : 0);
+  const visaDeduction = hiredCount * VISA_COST;
+
+  if (visaDeduction > 0) {
+    const currentCapital = await getCurrentCapital(userId);
+    if (visaDeduction > currentCapital) {
+      return {
+        error: `تكلفة الإقامة المطلوبة (${visaDeduction.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+      };
+    }
+  }
+
+  const daysConsumedNow = await getDaysConsumed(userId);
+
   const newObligations: { type: "salary-chemist" | "salary-accountant"; monthlyAmount: number }[] = [];
   const staticFields: Record<string, unknown> = {};
 
@@ -705,6 +736,8 @@ export async function confirmHiringDecision(
   } else {
     staticFields.chemistHired = true;
     staticFields.chemistExperience = chemistCandidate.choice;
+    staticFields.chemistVisaStartedAt = daysConsumedNow;
+    staticFields.chemistVisaCostPaid = VISA_COST;
     newObligations.push({ type: "salary-chemist", monthlyAmount: chemistCandidate.monthlySalary });
   }
 
@@ -714,10 +747,12 @@ export async function confirmHiringDecision(
   } else {
     staticFields.accountantHired = true;
     staticFields.accountantExperience = accountantCandidate.choice;
+    staticFields.accountantVisaStartedAt = daysConsumedNow;
+    staticFields.accountantVisaCostPaid = VISA_COST;
     newObligations.push({ type: "salary-accountant", monthlyAmount: accountantCandidate.monthlySalary });
   }
 
-  await applyHiringDecision(userId, { newObligations, staticFields });
+  await applyHiringDecision(userId, { newObligations, visaDeduction, staticFields });
   revalidatePath("/game");
   return null;
 }
@@ -844,6 +879,33 @@ export async function confirmProductionPurchase(
   );
   const inventoryDelta = purchaseQuantity - rawMaterialConsumed;
 
+  // قيد مساحة تخزين جديد (تصحيح شامل، أرقام حقيقية): الكمية الناتجة
+  // المتوقعة من هالدفعة + المخزون الحالي من المواد الخام + الوحدات
+  // النهائية غير المباعة — لو تجاوزوا سعة المستودع الفعلية (مساحة
+  // الإيجار ناقص المعدات)، رفض فعلي قبل أي خصم أو تعديل.
+  const rentSpaceSize = await getRentSpaceSize(userId);
+  const spaceBudget = rentSpaceSize ? SPACE_BUDGET[rentSpaceSize] : 0;
+  const equipmentOption = getEquipmentOption(equipmentSetup.equipmentType);
+  const pieceStorageCapacity = computePieceStorageCapacity(spaceBudget, equipmentOption?.spaceUsed ?? 0);
+
+  const [existingCycles, existingTransactions, existingBonusUnits] = await Promise.all([
+    getProductionCycles(userId),
+    getSalesTransactions(userId),
+    getBonusUnits(userId),
+  ]);
+  const { availableSmallUnits, availableLargeUnits } = getAvailableUnits(
+    existingCycles,
+    existingTransactions,
+    existingBonusUnits.bonusSmallUnits,
+    existingBonusUnits.bonusLargeUnits
+  );
+  const unsoldFinishedUnits = availableSmallUnits + availableLargeUnits;
+  const projectedStorageUsage = producedUnits + currentInventory + unsoldFinishedUnits;
+
+  if (projectedStorageUsage > pieceStorageCapacity) {
+    return { error: "المستودع ممتلئ — بع من مخزونك الحالي أو وسّع مساحتك أولاً." };
+  }
+
   // هدر طبيعي 3% ثابت (دايماً)، ثم خطأ كيميائي احتمالي حسب مستوى الخبرة
   // المخزّن فعلياً من مرحلة التوظيف — كل دورة برمية مستقلة.
   const hiringDecision = await getHiringDecision(userId);
@@ -861,9 +923,8 @@ export async function confirmProductionPurchase(
   // بعنصر الدورة نفسه للمراجعة لاحقاً.
   const daysConsumedThisCycle = getProductionCycleDays(purchaseQuantity);
 
-  const cycles = await getProductionCycles(userId);
   const newCycle: ProductionCycle = {
-    cycleNumber: cycles.length + 1,
+    cycleNumber: existingCycles.length + 1,
     supplierChoice,
     purchaseQuantity,
     purchaseCost: materialsCost,
@@ -996,7 +1057,8 @@ export async function confirmSaleTransaction(
   const staticFields: Record<string, unknown> = {};
   let unitCost = await getSaleUnitCost(userId);
   if (unitCost === null) {
-    unitCost = computeUnitCost(cycles);
+    const monthlyObligations = await getMonthlyObligations(userId);
+    unitCost = computeUnitCost(cycles, monthlyObligations);
     staticFields.saleUnitCost = unitCost;
   }
 

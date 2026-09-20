@@ -12,7 +12,7 @@ import type { ExperienceLevel } from "@/lib/hiring";
 export type SupplierChoice = "cheap" | "trusted";
 
 export const SUPPLIER_PRICE_PER_UNIT: Record<SupplierChoice, number> = {
-  cheap: 12,
+  cheap: 3,
   trusted: 20,
 };
 
@@ -22,13 +22,15 @@ export const BULK_DISCOUNT_PERCENT = 15;
 /**
  * طاقة الإنتاج لكل دورة — دالة بس بـequipmentType/workerCount
  * المحفوظين من مرحلة المعدات (6). ثابتة طول اللعبة بالجزء أ/ب (لا نمو
- * إنتاج ولا خطوط إضافية هون بعد).
+ * إنتاج ولا خطوط إضافية هون بعد). أرقام حقيقية (تصحيح شامل): خط
+ * أوتوماتيكي بـ6 عمال = 15,000 قطعة/يوم تقريباً، نصف أوتوماتيكي بـ10
+ * عمال = 2,500 قطعة/يوم تقريباً.
  */
 export function getProductionCapacity(equipmentType: EquipmentType, workerCount: number): number {
   if (equipmentType === "automatic") {
-    return 60 + workerCount * 20;
+    return 2500 * workerCount;
   }
-  return 25 + workerCount * 12;
+  return 250 * workerCount;
 }
 
 export type ProcessingMode = "fast" | "precise";
@@ -106,11 +108,23 @@ export const QC_COST = 300;
  * الشراء (كمية أكبر = وقت تجهيز/تصنيع أطول)، بحد أدنى يومين حتى لو
  * الكمية صغيرة جداً أو صفر.
  */
-export const PRODUCTION_DAYS_QUANTITY_DIVISOR = 50;
+export const PRODUCTION_DAYS_QUANTITY_DIVISOR = 5000;
 export const PRODUCTION_DAYS_MINIMUM = 2;
 
 export function getProductionCycleDays(purchaseQuantity: number): number {
   return Math.max(PRODUCTION_DAYS_MINIMUM, Math.ceil(purchaseQuantity / PRODUCTION_DAYS_QUANTITY_DIVISOR));
+}
+
+/**
+ * سعة تخزين المستودع بـ"قطعة" (منتج نهائي) — قيد جديد (تصحيح شامل، لم
+ * يكن موجوداً سابقاً). كل وحدة مساحة متبقية بعد المعدات (من
+ * rentSpaceSize، ناقص equipmentSpaceUsed) = سعة تخزين 1,000 قطعة —
+ * افتراض قابل للتعديل لاحقاً.
+ */
+export const PIECE_STORAGE_UNITS_PER_SPACE = 1000;
+
+export function computePieceStorageCapacity(spaceBudget: number, equipmentSpaceUsed: number): number {
+  return Math.max(0, spaceBudget - equipmentSpaceUsed) * PIECE_STORAGE_UNITS_PER_SPACE;
 }
 
 export type ProductionCycle = {

@@ -19,18 +19,18 @@ export const EQUIPMENT_OPTIONS: {
   {
     type: "automatic",
     label: "خط أوتوماتيكي كامل",
-    cost: 80000,
+    cost: 300000,
     spaceUsed: 10,
-    suggestedWorkers: 2,
+    suggestedWorkers: 6,
     allowsInstallments: true,
     setupDays: 10,
   },
   {
     type: "semi-automatic",
     label: "خط نصف أوتوماتيكي",
-    cost: 35000,
+    cost: 100000,
     spaceUsed: 6,
-    suggestedWorkers: 5,
+    suggestedWorkers: 10,
     allowsInstallments: false,
     setupDays: 5,
   },
@@ -48,6 +48,15 @@ export const SPACE_BUDGET: Record<RentSpaceSize, number> = {
 };
 
 export const WORKER_MONTHLY_SALARY = 800;
+
+/**
+ * التزام شهري إلزامي — اشتراك حريق/دفاع مدني + صيانة (13,000 درهم
+ * سنوياً: 6,500 اشتراك + 4,000 صيانة + 2,500 صيانة معدات، مقسومة على
+ * 12). يُضاف تلقائياً مرة وحدة عند اكتمال مرحلة المعدات (أول لحظة
+ * يصبح فيها المصنع "جاهزاً تشغيلياً") — لكل مصنع بغض النظر عن مسار
+ * الترخيص، منفصل تماماً عن مفاجآت مسار الترخيص الذاتي العشوائية.
+ */
+export const FIRE_SAFETY_MONTHLY_AMOUNT = 1083;
 
 export type EquipmentResult = {
   confirmed: true;

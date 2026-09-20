@@ -18,21 +18,21 @@ export const RENT_OPTIONS: {
   {
     id: "cheap-practical",
     label: "منطقة صناعية بعيدة، مكان رخيص وعملي",
-    annualRent: 24000,
+    annualRent: 90000,
     hasFullServices: true,
     spaceSize: "medium",
   },
   {
     id: "cheap-empty",
     label: "منطقة صناعية بعيدة، مكان رخيص وفاضي",
-    annualRent: 14000,
+    annualRent: 70000,
     hasFullServices: false,
     spaceSize: "medium",
   },
   {
     id: "expensive-prime",
     label: "قرب معلم سياحي، مكان غالي بموقع مميز",
-    annualRent: 55000,
+    annualRent: 180000,
     hasFullServices: false,
     spaceSize: "small",
     primeLocation: true,
@@ -40,7 +40,7 @@ export const RENT_OPTIONS: {
   {
     id: "expensive-full",
     label: "قرب مركز التوزيع، مكان غالي وكامل الخدمات",
-    annualRent: 70000,
+    annualRent: 240000,
     hasFullServices: true,
     spaceSize: "large",
   },
