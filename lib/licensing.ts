@@ -10,7 +10,7 @@ export type LicensingPath = "agency" | "self";
 export const AGENCY_COST = 55000;
 export const AGENCY_DAYS = 10;
 
-export const SELF_BASE_COST = 5000;
+export const SELF_BASE_COST = 45000;
 export const SELF_BASE_DAYS = 25;
 export const SELF_UNREADY_EXTRA_DAYS = 5;
 
