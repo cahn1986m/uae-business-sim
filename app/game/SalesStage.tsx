@@ -10,12 +10,9 @@ import {
   type AdCampaignFormState,
 } from "./actions";
 import {
-  CHANNEL_LABELS,
   CHANNEL_MARGIN,
   SALES_EMPLOYEE_COMMISSION_RATE,
-  AD_TARGET_LABELS,
   AD_BUDGET_MINIMUM,
-  WHOLESALE_PAYMENT_LABELS,
   WHOLESALE_PAYMENT_MARGIN,
   type SalesChannel,
   type LocationBonusResult,
@@ -24,6 +21,7 @@ import {
   type WholesalePaymentMethod,
 } from "@/lib/sales";
 import DramaticAlert from "./DramaticAlert";
+import { t, type Language } from "@/lib/i18n";
 
 const CHANNELS: SalesChannel[] = ["discount-market", "wholesaler", "boutique-trader"];
 const AD_TARGETS: AdTarget[] = ["premium", "wholesale", "discount"];
@@ -42,6 +40,7 @@ export default function SalesStage({
   locationBonusResults,
   salesEmployeeHired,
   adCampaigns,
+  language,
 }: {
   availableSmallUnits: number;
   availableLargeUnits: number;
@@ -49,15 +48,16 @@ export default function SalesStage({
   locationBonusResults: LocationBonusResult[];
   salesEmployeeHired: boolean;
   adCampaigns: AdCampaign[];
+  language: Language;
 }) {
   return (
     <div className="w-full max-w-md space-y-6">
       {locationBonusResults.length > 0 && (
         <div className="space-y-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
-          <p className="text-sm font-semibold">أثر الموقع عند دخولك المرحلة</p>
+          <p className="text-sm font-semibold">{t("sales.locationEffectTitle", language)}</p>
           {locationBonusResults.map((r, i) =>
             r.type === "hotel-2star" && !r.success ? (
-              <DramaticAlert key={i}>
+              <DramaticAlert key={i} language={language}>
                 <p className="text-xs">{r.message}</p>
               </DramaticAlert>
             ) : (
@@ -72,41 +72,41 @@ export default function SalesStage({
         </div>
       )}
 
-      <SalesEmployeeSection hired={salesEmployeeHired} />
+      <SalesEmployeeSection hired={salesEmployeeHired} language={language} />
 
       <SaleForm
         availableSmallUnits={availableSmallUnits}
         availableLargeUnits={availableLargeUnits}
         boutiqueUnlocked={boutiqueUnlocked}
         salesEmployeeHired={salesEmployeeHired}
+        language={language}
       />
 
-      <AdCampaignSection campaigns={adCampaigns} />
+      <AdCampaignSection campaigns={adCampaigns} language={language} />
     </div>
   );
 }
 
-function SalesEmployeeSection({ hired }: { hired: boolean }) {
+function SalesEmployeeSection({ hired, language }: { hired: boolean; language: Language }) {
   if (hired) {
     return (
       <div className="rounded-md border border-zinc-200 p-4 text-right text-sm dark:border-zinc-800">
-        موظف مبيعات موظّف — عمولته {Math.round(SALES_EMPLOYEE_COMMISSION_RATE * 100)}% على كل عملية بيع
+        {t("sales.employeeHiredLine", language, { percent: Math.round(SALES_EMPLOYEE_COMMISSION_RATE * 100) })}
       </div>
     );
   }
 
   return (
     <form action={hireSalesEmployee} className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
-      <p className="text-sm font-medium">موظف مبيعات</p>
+      <p className="text-sm font-medium">{t("sales.employeeTitle", language)}</p>
       <p className="mt-1 text-xs text-zinc-500">
-        بونص فوري: +30 وحدة (أسواق/جملة) و+15 وحدة (تجار صغار) — مقابل عمولة{" "}
-        {Math.round(SALES_EMPLOYEE_COMMISSION_RATE * 100)}% على كل عملية بيع تالية
+        {t("sales.employeeDescription", language, { percent: Math.round(SALES_EMPLOYEE_COMMISSION_RATE * 100) })}
       </p>
       <button
         type="submit"
         className="mt-3 w-full rounded-md bg-zinc-900 px-5 py-2 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        توظيف موظف مبيعات
+        {t("sales.hireEmployeeButton", language)}
       </button>
     </form>
   );
@@ -117,11 +117,13 @@ function SaleForm({
   availableLargeUnits,
   boutiqueUnlocked,
   salesEmployeeHired,
+  language,
 }: {
   availableSmallUnits: number;
   availableLargeUnits: number;
   boutiqueUnlocked: boolean;
   salesEmployeeHired: boolean;
+  language: Language;
 }) {
   const [state, formAction, isPending] = useActionState<SalesFormState, FormData>(
     confirmSaleTransaction,
@@ -137,14 +139,17 @@ function SaleForm({
 
   return (
     <form action={formAction} className="space-y-4">
-      <p className="text-sm font-semibold">بيع</p>
+      <p className="text-sm font-semibold">{t("sales.saleTitle", language)}</p>
 
       {state && "totalRevenue" in state && (
         <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-          بيع ناجح: {state.unitsSold.toLocaleString("ar")} وحدة عبر {CHANNEL_LABELS[state.channel]} — إيراد إجمالي{" "}
-          {state.totalRevenue.toLocaleString("ar")} درهم
+          {t("sales.saleSuccess", language, {
+            units: state.unitsSold.toLocaleString("ar"),
+            channel: t(`sales.channel.${state.channel}`, language),
+            revenue: state.totalRevenue.toLocaleString("ar"),
+          })}
           {state.deferred
-            ? ` — مؤجل التحصيل (${WHOLESALE_PAYMENT_LABELS[state.paymentMethod]}), ما انضاف لرأس المال بعد`
+            ? t("sales.deferredSuffix", language, { method: t(`sales.payment.${state.paymentMethod}`, language) })
             : ""}
         </p>
       )}
@@ -159,7 +164,7 @@ function SaleForm({
               className="flex flex-col gap-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
             >
               <span className="flex items-center justify-between">
-                <span className="text-sm font-medium">{CHANNEL_LABELS[c]}</span>
+                <span className="text-sm font-medium">{t(`sales.channel.${c}`, language)}</span>
                 <input
                   id={`channel_${c}`}
                   name="channel"
@@ -172,14 +177,13 @@ function SaleForm({
                 />
               </span>
               <span className="text-xs text-zinc-500">
-                هامش الربح: {Math.round(CHANNEL_MARGIN[c] * 100)}% — المتاح للبيع: {availableForChannel(c).toLocaleString("ar")} وحدة
-                {salesEmployeeHired && " — السعر بعد خصم عمولة الموظف"}
+                {t("sales.marginLine", language, {
+                  percent: Math.round(CHANNEL_MARGIN[c] * 100),
+                  available: availableForChannel(c).toLocaleString("ar"),
+                })}
+                {salesEmployeeHired && t("sales.commissionSuffix", language)}
               </span>
-              {locked && (
-                <span className="text-xs text-red-600 dark:text-red-400">
-                  مقفولة — تحتاج تنويع سلة (productLineType=diversified) بدورة إنتاج واحدة على الأقل
-                </span>
-              )}
+              {locked && <span className="text-xs text-red-600 dark:text-red-400">{t("sales.lockedLine", language)}</span>}
             </label>
           );
         })}
@@ -187,11 +191,14 @@ function SaleForm({
 
       {channel === "wholesaler" && (
         <div className="space-y-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
-          <p className="text-sm font-medium">طريقة الدفع (تسهيلات تجار الجملة)</p>
+          <p className="text-sm font-medium">{t("sales.paymentMethodTitle", language)}</p>
           {WHOLESALE_PAYMENT_METHODS.map((m) => (
             <label key={m} htmlFor={`payment_${m}`} className="flex items-center justify-between text-sm">
               <span>
-                {WHOLESALE_PAYMENT_LABELS[m]} — هامش {Math.round(WHOLESALE_PAYMENT_MARGIN[m] * 100)}%
+                {t("sales.marginPercentLine", language, {
+                  label: t(`sales.payment.${m}`, language),
+                  percent: Math.round(WHOLESALE_PAYMENT_MARGIN[m] * 100),
+                })}
               </span>
               <input
                 id={`payment_${m}`}
@@ -209,7 +216,7 @@ function SaleForm({
 
       <div>
         <label htmlFor="unitsSold" className="mb-2 block text-sm font-medium">
-          الكمية المطلوب بيعها
+          {t("sales.quantityLabel", language)}
         </label>
         <input
           id="unitsSold"
@@ -234,13 +241,13 @@ function SaleForm({
         disabled={isPending || !channel || unitsSold === ""}
         className="w-full rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        {isPending ? "جاري البيع..." : "بيع"}
+        {isPending ? t("sales.submitting", language) : t("sales.submitButton", language)}
       </button>
     </form>
   );
 }
 
-function AdCampaignSection({ campaigns }: { campaigns: AdCampaign[] }) {
+function AdCampaignSection({ campaigns, language }: { campaigns: AdCampaign[]; language: Language }) {
   const [state, formAction, isPending] = useActionState<AdCampaignFormState, FormData>(
     confirmAdCampaign,
     null
@@ -251,25 +258,30 @@ function AdCampaignSection({ campaigns }: { campaigns: AdCampaign[] }) {
 
   return (
     <form action={formAction} className="space-y-3 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
-      <p className="text-sm font-semibold">حملة إعلانية ({campaigns.length.toLocaleString("ar")} حملة سابقة)</p>
+      <p className="text-sm font-semibold">
+        {t("sales.adCampaignTitle", language, { count: campaigns.length.toLocaleString("ar") })}
+      </p>
 
       {state && "wonChannel" in state && (
         <p className="rounded-md bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300">
-          الحملة ربحت {state.bonusUnits.toLocaleString("ar")} وحدة عبر {CHANNEL_LABELS[state.wonChannel]}
+          {t("sales.adCampaignSuccess", language, {
+            units: state.bonusUnits.toLocaleString("ar"),
+            channel: t(`sales.channel.${state.wonChannel}`, language),
+          })}
         </p>
       )}
 
       <div className="space-y-2">
-        {AD_TARGETS.map((t) => (
-          <label key={t} htmlFor={`ad_target_${t}`} className="flex items-center justify-between text-sm">
-            <span>{AD_TARGET_LABELS[t]}</span>
+        {AD_TARGETS.map((adTarget) => (
+          <label key={adTarget} htmlFor={`ad_target_${adTarget}`} className="flex items-center justify-between text-sm">
+            <span>{t(`sales.adTarget.${adTarget}`, language)}</span>
             <input
-              id={`ad_target_${t}`}
+              id={`ad_target_${adTarget}`}
               name="target"
-              value={t}
+              value={adTarget}
               type="radio"
-              checked={target === t}
-              onChange={() => setTarget(t)}
+              checked={target === adTarget}
+              onChange={() => setTarget(adTarget)}
               className="h-4 w-4"
             />
           </label>
@@ -278,7 +290,7 @@ function AdCampaignSection({ campaigns }: { campaigns: AdCampaign[] }) {
 
       <div>
         <label htmlFor="budget" className="mb-2 block text-sm font-medium">
-          الميزانية (حد أدنى {AD_BUDGET_MINIMUM.toLocaleString("ar")})
+          {t("sales.budgetLabel", language, { min: AD_BUDGET_MINIMUM.toLocaleString("ar") })}
         </label>
         <input
           id="budget"
@@ -303,7 +315,7 @@ function AdCampaignSection({ campaigns }: { campaigns: AdCampaign[] }) {
         disabled={isPending || !target || budget === ""}
         className="w-full rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        {isPending ? "جاري الإطلاق..." : "إطلاق حملة إعلانية"}
+        {isPending ? t("sales.launching", language) : t("sales.launchButton", language)}
       </button>
     </form>
   );

@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { confirmFinancingDecision, type FinancingFormState } from "./actions";
 import { FINANCING_TIERS, type FinancingDecision } from "@/lib/financing";
+import { t, type Language } from "@/lib/i18n";
 
 /**
  * واجهة مرحلة "قرار التمويل" — قبل التأكيد: 3 مستويات بنفس التصميم
@@ -12,8 +13,10 @@ import { FINANCING_TIERS, type FinancingDecision } from "@/lib/financing";
  */
 export default function FinancingStage({
   decision,
+  language,
 }: {
   decision: FinancingDecision | null;
+  language: Language;
 }) {
   const [state, formAction, isPending] = useActionState<FinancingFormState, FormData>(
     confirmFinancingDecision,
@@ -25,16 +28,20 @@ export default function FinancingStage({
   if (decision) {
     return (
       <div className="w-full max-w-md space-y-3">
-        <p className="text-sm text-zinc-500">قرار التمويل مؤكّد.</p>
+        <p className="text-sm text-zinc-500">{t("financing.confirmed", language)}</p>
         <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
           <p className="text-sm">
-            رأس المال: <span className="font-medium">{decision.startingCapital.toLocaleString("ar")}</span>
+            {t("financing.capitalLabel", language)}{" "}
+            <span className="font-medium">{decision.startingCapital.toLocaleString("ar")}</span>
           </p>
           <p className="mt-1 text-sm">
-            حصة المستثمر: <span className="font-medium">{decision.investorEquityPercent}%</span>
+            {t("financing.investorShareLabel", language)}{" "}
+            <span className="font-medium">{decision.investorEquityPercent}%</span>
           </p>
           <p className="mt-1 text-sm">
-            مهلة الأداء: <span className="font-medium">{decision.financingDeadlineDays} يوم</span>
+            <span className="font-medium">
+              {t("financing.deadlineLine", language, { days: decision.financingDeadlineDays })}
+            </span>
           </p>
         </div>
       </div>
@@ -51,7 +58,7 @@ export default function FinancingStage({
             className="flex flex-col gap-3 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
           >
             <span className="flex items-center justify-between">
-              <span className="text-sm font-medium">{tier.label}</span>
+              <span className="text-sm font-medium">{t(`financing.tier.${tier.key}`, language)}</span>
               <input
                 id={`tier_${tier.key}`}
                 name="tier"
@@ -64,8 +71,12 @@ export default function FinancingStage({
             </span>
 
             <span className="text-xs text-zinc-500">
-              النطاق: {tier.min.toLocaleString("ar")} - {tier.max.toLocaleString("ar")} — مهلة{" "}
-              {tier.deadlineDays} يوم — حصة المستثمر {tier.investorEquityPercent}%
+              {t("financing.rangeLine", language, {
+                min: tier.min.toLocaleString("ar"),
+                max: tier.max.toLocaleString("ar"),
+                days: tier.deadlineDays,
+                percent: tier.investorEquityPercent,
+              })}
             </span>
 
             {/*
@@ -80,7 +91,10 @@ export default function FinancingStage({
               type="number"
               step={1}
               inputMode="numeric"
-              placeholder={`بين ${tier.min.toLocaleString("ar")} و${tier.max.toLocaleString("ar")}`}
+              placeholder={t("financing.amountPlaceholder", language, {
+                min: tier.min.toLocaleString("ar"),
+                max: tier.max.toLocaleString("ar"),
+              })}
               className="w-full rounded-md border border-zinc-300 px-3 py-2 text-sm outline-none focus:border-zinc-500 dark:border-zinc-700 dark:bg-zinc-900"
             />
           </label>
@@ -98,7 +112,7 @@ export default function FinancingStage({
         disabled={isPending}
         className="w-full rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        {isPending ? "جاري التأكيد..." : "تأكيد"}
+        {isPending ? t("common.confirming", language) : t("common.confirm", language)}
       </button>
     </form>
   );

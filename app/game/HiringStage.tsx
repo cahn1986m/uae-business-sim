@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { confirmHiringDecision, type HiringFormState } from "./actions";
 import { HIRING_ROLES, type HiringChoice, type HiringDecision } from "@/lib/hiring";
+import { t, type Language } from "@/lib/i18n";
 
 /**
  * واجهة مرحلة "التوظيف" — دوران مستقلان (كيميائي ومحاسب)، كل واحد
@@ -10,7 +11,13 @@ import { HIRING_ROLES, type HiringChoice, type HiringDecision } from "@/lib/hiri
  * توظف" عندها نفس شكل البطاقة وزر "تفاصيل"). الراتب ظاهر افتراضياً؛
  * نص الخبرة ما بيظهر إلا بعد ضغط "تفاصيل" لكل مرشح لحاله.
  */
-export default function HiringStage({ decision }: { decision: HiringDecision | null }) {
+export default function HiringStage({
+  decision,
+  language,
+}: {
+  decision: HiringDecision | null;
+  language: Language;
+}) {
   const [state, formAction, isPending] = useActionState<HiringFormState, FormData>(
     confirmHiringDecision,
     null
@@ -27,7 +34,7 @@ export default function HiringStage({ decision }: { decision: HiringDecision | n
   if (decision) {
     return (
       <div className="w-full max-w-md space-y-3">
-        {HIRING_ROLES.map(({ role, roleLabel }) => {
+        {HIRING_ROLES.map(({ role }) => {
           const hired = role === "chemist" ? decision.chemistHired : decision.accountantHired;
           const experience =
             role === "chemist" ? decision.chemistExperience : decision.accountantExperience;
@@ -36,9 +43,13 @@ export default function HiringStage({ decision }: { decision: HiringDecision | n
               key={role}
               className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
             >
-              <p className="text-sm font-medium">{roleLabel}</p>
+              <p className="text-sm font-medium">{t(`hiring.role.${role}`, language)}</p>
               <p className="mt-1 text-sm text-zinc-500">
-                {hired ? `تم التوظيف — خبرة: ${experience === "senior" ? "سينيور" : "جونيور"}` : "بدون توظيف"}
+                {hired
+                  ? t("hiring.hiredLine", language, {
+                      experience: t(`hiring.experience.${experience}`, language),
+                    })
+                  : t("hiring.notHired", language)}
               </p>
             </div>
           );
@@ -49,9 +60,9 @@ export default function HiringStage({ decision }: { decision: HiringDecision | n
 
   return (
     <form action={formAction} className="w-full max-w-md space-y-6">
-      {HIRING_ROLES.map(({ role, roleLabel, candidates }) => (
+      {HIRING_ROLES.map(({ role, candidates }) => (
         <div key={role} className="space-y-3">
-          <p className="text-sm font-semibold">{roleLabel}</p>
+          <p className="text-sm font-semibold">{t(`hiring.role.${role}`, language)}</p>
           {candidates.map((candidate) => {
             const detailsKey = `${role}_${candidate.choice}`;
             const isDetailsShown = viewedDetails.has(detailsKey);
@@ -63,7 +74,7 @@ export default function HiringStage({ decision }: { decision: HiringDecision | n
                 className="flex flex-col gap-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
               >
                 <span className="flex items-center justify-between">
-                  <span className="text-sm font-medium">{candidate.label}</span>
+                  <span className="text-sm font-medium">{t(`hiring.choice.${candidate.choice}`, language)}</span>
                   <input
                     id={inputId}
                     name={role}
@@ -80,7 +91,7 @@ export default function HiringStage({ decision }: { decision: HiringDecision | n
                   />
                 </span>
                 <span className="text-xs text-zinc-500">
-                  الراتب الشهري: {candidate.monthlySalary.toLocaleString("ar")}
+                  {t("hiring.salaryLine", language, { salary: candidate.monthlySalary.toLocaleString("ar") })}
                 </span>
 
                 <button
@@ -92,7 +103,7 @@ export default function HiringStage({ decision }: { decision: HiringDecision | n
                   disabled={isDetailsShown}
                   className="w-fit text-xs text-zinc-500 underline disabled:no-underline disabled:opacity-50"
                 >
-                  {isDetailsShown ? "شفت التفاصيل" : "تفاصيل"}
+                  {isDetailsShown ? t("common.detailsViewed", language) : t("common.details", language)}
                 </button>
                 {isDetailsShown && <p className="text-xs text-zinc-500">{candidate.bio}</p>}
               </label>
@@ -112,7 +123,7 @@ export default function HiringStage({ decision }: { decision: HiringDecision | n
         disabled={isPending || !chemistChoice || !accountantChoice}
         className="w-full rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        {isPending ? "جاري التأكيد..." : "تأكيد"}
+        {isPending ? t("common.confirming", language) : t("common.confirm", language)}
       </button>
     </form>
   );

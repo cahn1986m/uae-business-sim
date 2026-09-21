@@ -1,7 +1,7 @@
 import type { MarketResearchResults } from "@/lib/market-research";
 import { MARKET_RESEARCH_SERVICES } from "@/lib/market-research";
 import type { FinancingDecision } from "@/lib/financing";
-import type { LicensingResult, LicensingPath } from "@/lib/licensing";
+import type { LicensingResult } from "@/lib/licensing";
 import type { RentResult } from "@/lib/rent";
 import { getRentOption } from "@/lib/rent";
 import type { EquipmentResult } from "@/lib/equipment";
@@ -9,9 +9,6 @@ import { getEquipmentOption } from "@/lib/equipment";
 import type { HiringDecision, ExperienceLevel } from "@/lib/hiring";
 import type { ProductionCycle } from "@/lib/production";
 import {
-  CHANNEL_LABELS,
-  WHOLESALE_PAYMENT_LABELS,
-  AD_TARGET_LABELS,
   type SalesTransaction,
   type AdCampaign,
   type LocationBonusResult,
@@ -27,27 +24,15 @@ import {
   countChemistErrors,
   sumFinalProducedUnits,
 } from "@/lib/results";
-
-const LICENSING_PATH_LABELS: Record<LicensingPath, string> = {
-  agency: "شركة/وكيل تراخيص",
-  self: "ترخيص بنفسك",
-};
-
-const EXPERIENCE_LABELS: Record<Exclude<ExperienceLevel, null>, string> = {
-  junior: "جونيور",
-  senior: "سينيور",
-};
-
-const FINANCING_TIER_LABELS: Record<string, string> = {
-  limited: "رأس مال محدود (بنك)",
-  medium: "رأس مال متوسط (بنك+ملائكة)",
-  comfortable: "رأس مال مريح (ملائكة)",
-};
+import { t, type Language } from "@/lib/i18n";
 
 /**
  * مرحلة "النتيجة" (المرحلة 10، الأخيرة) — تقرير قراءة بحت، بدون أي
  * منطق لعب جديد. كل رقم/جملة هون مبني من حقول فعلية مخزَّنة لهالحساب
- * تحديداً (مُجمَّعة عبر `lib/results.ts`)، مافي أي نص عام ثابت.
+ * تحديداً (مُجمَّعة عبر `lib/results.ts`)، مافي أي نص عام ثابت. النصوص
+ * الديناميكية المخزَّنة (رسائل دراسة السوق/الترخيص/الموقع) تبقى عربية
+ * دايماً — الترجمة هون للعناوين والتسميات الثابتة بس (الجزء أ من ميزة
+ * اللغة).
  */
 export default function ResultStage({
   currentCapital,
@@ -66,6 +51,7 @@ export default function ResultStage({
   saleUnitCost,
   salesEmployeeHired,
   adCampaigns,
+  language,
 }: {
   currentCapital: number;
   pendingReceivables: PendingReceivable[];
@@ -83,6 +69,7 @@ export default function ResultStage({
   saleUnitCost: number;
   salesEmployeeHired: boolean;
   adCampaigns: AdCampaign[];
+  language: Language;
 }) {
   const pendingReceivablesTotal = pendingReceivables
     .filter((r) => !r.collected)
@@ -115,40 +102,39 @@ export default function ResultStage({
               : "text-red-600 dark:text-red-400"
           }`}
         >
-          {verdict === "نجحت" ? "🎉 نجحت بالمشروع" : "📉 خسرت بالمشروع"}
+          {verdict === "نجحت" ? t("result.success", language) : t("result.failure", language)}
         </p>
-        <p className="text-sm">رأس المال الأصلي: {startingCapital.toLocaleString("ar")} درهم</p>
+        <p className="text-sm">{t("result.startingCapital", language, { amount: startingCapital.toLocaleString("ar") })}</p>
         <p className="text-sm">
-          الوضع النهائي (صافي الثروة): {finalNetWorth.toLocaleString("ar")} درهم
+          {t("result.finalNetWorth", language, { amount: finalNetWorth.toLocaleString("ar") })}
           {pendingReceivablesTotal > 0 && (
             <span className="text-xs text-zinc-500">
-              {" "}
-              (يشمل {pendingReceivablesTotal.toLocaleString("ar")} درهم مبالغ لسا بالطريق — تسهيلات لم تُحصَّل بعد)
+              {t("result.pendingNote", language, { amount: pendingReceivablesTotal.toLocaleString("ar") })}
             </span>
           )}
         </p>
         <p className={`text-sm font-medium ${difference >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
-          {difference >= 0 ? "ربح صافي" : "خسارة صافية"}: {Math.abs(difference).toLocaleString("ar")} درهم
+          {difference >= 0 ? t("result.netProfit", language) : t("result.netLoss", language)}: {Math.abs(difference).toLocaleString("ar")} {language === "ar" ? "درهم" : "AED"}
         </p>
       </div>
 
       {/* دراسة السوق */}
       {marketResearchResults && marketResearchResults.purchased.length > 0 && (
         <div className="space-y-1 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-          <p className="text-sm font-semibold">دراسة السوق</p>
+          <p className="text-sm font-semibold">{t("result.marketResearchTitle", language)}</p>
           {marketResearchResults.purchased.map((key) => {
             const service = MARKET_RESEARCH_SERVICES.find((s) => s.key === key);
             let resultText: string | null = null;
             if (key === "feasibility" || key === "consultants") {
               resultText = marketResearchResults.outcomes[key]?.message ?? null;
             } else if (key === "hotel5star") {
-              resultText = locationBonusResults.find((r) => r.type === "hotel-5star")?.message ?? "لم يُستخدم بعد بمرحلة البيع.";
+              resultText = locationBonusResults.find((r) => r.type === "hotel-5star")?.message ?? t("result.notUsedYet", language);
             } else if (key === "hotel2star") {
-              resultText = locationBonusResults.find((r) => r.type === "hotel-2star")?.message ?? "لم يُستخدم بعد بمرحلة البيع.";
+              resultText = locationBonusResults.find((r) => r.type === "hotel-2star")?.message ?? t("result.notUsedYet", language);
             }
             return (
               <p key={key} className="text-xs text-zinc-600 dark:text-zinc-400">
-                {service?.label ?? key}: {resultText ?? "—"}
+                {service ? t(`marketResearch.service.${key}`, language) : key}: {resultText ?? "—"}
               </p>
             );
           })}
@@ -157,41 +143,55 @@ export default function ResultStage({
 
       {/* التمويل */}
       <div className="space-y-1 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-        <p className="text-sm font-semibold">التمويل</p>
+        <p className="text-sm font-semibold">{t("result.financingTitle", language)}</p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          المستوى: {tierKey ? FINANCING_TIER_LABELS[tierKey] : "غير معروف"}
+          {t("result.levelLabel", language, {
+            level: tierKey ? t(`financing.tier.${tierKey}`, language) : t("result.unknownLevel", language),
+          })}
         </p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          رأس المال: {financingDecision.startingCapital.toLocaleString("ar")} درهم — حصة المستثمر:{" "}
-          {financingDecision.investorEquityPercent}%
+          {t("result.capitalShare", language, {
+            amount: financingDecision.startingCapital.toLocaleString("ar"),
+            percent: financingDecision.investorEquityPercent,
+          })}
         </p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          مهلة الأداء: {financingDecision.financingDeadlineDays} يوم — الأيام المستهلكة فعلياً: {daysConsumed}
+          {t("result.deadlineLine", language, {
+            days: financingDecision.financingDeadlineDays,
+            consumed: daysConsumed,
+          })}
         </p>
         <p
           className={`text-xs ${isOverdue ? "text-red-600 dark:text-red-400" : "text-emerald-600 dark:text-emerald-400"}`}
         >
-          {isOverdue ? "تجاوزت المهلة المحددة." : "ضمن المهلة المحددة."}
+          {isOverdue ? t("result.overdue", language) : t("result.withinDeadline", language)}
         </p>
       </div>
 
       {/* الترخيص */}
       <div className="space-y-1 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-        <p className="text-sm font-semibold">الترخيص</p>
+        <p className="text-sm font-semibold">{t("result.licensingTitle", language)}</p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          المسار: {LICENSING_PATH_LABELS[licensingResult.path]} — التكلفة الكلية:{" "}
-          {licensingResult.totalCost.toLocaleString("ar")} درهم — المدة: {licensingResult.totalDays} يوم
+          {t("result.pathCostLine", language, {
+            path: t(`licensing.path.${licensingResult.path}`, language),
+            cost: licensingResult.totalCost.toLocaleString("ar"),
+            days: licensingResult.totalDays,
+          })}
         </p>
         {licensingResult.path === "self" && (
           <>
             {licensingResult.events && licensingResult.events.length > 0 ? (
               licensingResult.events.map((e) => (
                 <p key={e.key} className="text-xs text-zinc-600 dark:text-zinc-400">
-                  مفاجأة: {e.label} — تكلفة إضافية {e.extraCost.toLocaleString("ar")} درهم، +{e.extraDays} يوم
+                  {t("result.surpriseLine", language, {
+                    label: e.label,
+                    cost: e.extraCost.toLocaleString("ar"),
+                    days: e.extraDays,
+                  })}
                 </p>
               ))
             ) : (
-              <p className="text-xs text-zinc-600 dark:text-zinc-400">لم تحصل أي مفاجآت.</p>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400">{t("result.noSurprises", language)}</p>
             )}
           </>
         )}
@@ -199,76 +199,118 @@ export default function ResultStage({
 
       {/* الإيجار */}
       <div className="space-y-1 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-        <p className="text-sm font-semibold">المكان والإيجار</p>
+        <p className="text-sm font-semibold">{t("result.rentTitle", language)}</p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          الخيار: {rentOption?.label ?? rentResult.rentId} — السعر النهائي: {rentResult.finalPrice.toLocaleString("ar")} درهم
+          {t("result.rentOptionLine", language, {
+            option: rentOption ? t(`rent.option.${rentOption.id}`, language) : rentResult.rentId,
+            price: rentResult.finalPrice.toLocaleString("ar"),
+          })}
         </p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          التفاوض: {rentResult.negotiationUsed ? (rentResult.negotiationSuccess ? `نجح (خصم ${rentResult.discountPercent}%)` : "فشل") : "لم يُستخدم"}
+          {t("result.negotiationLine", language, {
+            status: rentResult.negotiationUsed
+              ? rentResult.negotiationSuccess
+                ? t("result.negotiationSucceeded", language, { percent: rentResult.discountPercent })
+                : t("result.negotiationFailed", language)
+              : t("result.negotiationNotUsed", language),
+          })}
         </p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          طريقة الدفع: {rentResult.paymentMethod === "cash" ? "كاش كامل" : "تقسيط"}
+          {t("result.paymentMethodLine", language, {
+            method: rentResult.paymentMethod === "cash" ? t("common.cashFull", language) : t("common.installments", language),
+          })}
         </p>
       </div>
 
       {/* المعدات والتوظيف */}
       <div className="space-y-1 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-        <p className="text-sm font-semibold">المعدات والتوظيف</p>
+        <p className="text-sm font-semibold">{t("result.equipmentTitle", language)}</p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          المعدات: {equipmentOption?.label ?? equipmentResult.equipmentType} — عدد العمال: {equipmentResult.workerCount}
+          {t("result.equipmentLine", language, {
+            equipment: equipmentOption ? t(`equipment.option.${equipmentOption.type}`, language) : equipmentResult.equipmentType,
+            count: equipmentResult.workerCount,
+          })}
         </p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          الكيميائي: {hiringDecision.chemistHired
-            ? `موظّف (${EXPERIENCE_LABELS[hiringDecision.chemistExperience as Exclude<ExperienceLevel, null>]})`
-            : "غير موظّف"}
+          {t("result.chemistLine", language, {
+            status: hiringDecision.chemistHired
+              ? t("result.hiredWithExperience", language, {
+                  experience: t(`hiring.experience.${hiringDecision.chemistExperience as Exclude<ExperienceLevel, null>}`, language),
+                })
+              : t("result.notHired", language),
+          })}
         </p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          المحاسب: {hiringDecision.accountantHired
-            ? `موظّف (${EXPERIENCE_LABELS[hiringDecision.accountantExperience as Exclude<ExperienceLevel, null>]})`
-            : "غير موظّف"}
+          {t("result.accountantLine", language, {
+            status: hiringDecision.accountantHired
+              ? t("result.hiredWithExperience", language, {
+                  experience: t(`hiring.experience.${hiringDecision.accountantExperience as Exclude<ExperienceLevel, null>}`, language),
+                })
+              : t("result.notHired", language),
+          })}
         </p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          أخطاء كيميائية فعلية عبر كل دورات الإنتاج: {chemistErrorCount.toLocaleString("ar")}
+          {t("result.chemistErrorsLine", language, { count: chemistErrorCount.toLocaleString("ar") })}
         </p>
       </div>
 
       {/* الإنتاج */}
       <div className="space-y-1 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-        <p className="text-sm font-semibold">الإنتاج</p>
+        <p className="text-sm font-semibold">{t("result.productionTitle", language)}</p>
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          عدد دورات الإنتاج: {productionCycles.length.toLocaleString("ar")} — إجمالي الوحدات المنتَجة فعلياً:{" "}
-          {totalFinalProducedUnits.toLocaleString("ar")}
+          {t("result.productionLine", language, {
+            count: productionCycles.length.toLocaleString("ar"),
+            units: totalFinalProducedUnits.toLocaleString("ar"),
+          })}
         </p>
       </div>
 
       {/* البيع */}
       <div className="space-y-1 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-        <p className="text-sm font-semibold">البيع</p>
+        <p className="text-sm font-semibold">{t("result.salesTitle", language)}</p>
         {(Object.keys(channelRevenue) as (keyof typeof channelRevenue)[]).map((channel) => (
           <p key={channel} className="text-xs text-zinc-600 dark:text-zinc-400">
-            {CHANNEL_LABELS[channel]}: {channelRevenue[channel].toLocaleString("ar")} درهم
+            {t("result.channelRevenueLine", language, {
+              channel: t(`sales.channel.${channel}`, language),
+              amount: channelRevenue[channel].toLocaleString("ar"),
+            })}
           </p>
         ))}
         {wholesalePayments.length > 0 && (
           <p className="text-xs text-zinc-600 dark:text-zinc-400">
-            تفصيل تجار الجملة حسب طريقة الدفع:{" "}
+            {t("result.wholesaleBreakdown", language)}
             {wholesalePayments
-              .map((p) => `${WHOLESALE_PAYMENT_LABELS[p.method]} (${p.count.toLocaleString("ar")} عملية، ${p.totalRevenue.toLocaleString("ar")} درهم)`)
+              .map((p) =>
+                t("result.wholesaleBreakdownItem", language, {
+                  method: t(`sales.payment.${p.method}`, language),
+                  count: p.count.toLocaleString("ar"),
+                  amount: p.totalRevenue.toLocaleString("ar"),
+                })
+              )
               .join(" — ")}
           </p>
         )}
         <p className="text-xs text-zinc-600 dark:text-zinc-400">
-          موظف مبيعات: {salesEmployeeHired ? `موظّف — إجمالي عمولة مدفوعة ${totalCommissionPaid.toLocaleString("ar")} درهم` : "غير موظّف"}
+          {t("result.salesEmployeeLine", language, {
+            status: salesEmployeeHired
+              ? t("result.employedWithCommission", language, { amount: totalCommissionPaid.toLocaleString("ar") })
+              : t("result.notHired", language),
+          })}
         </p>
         {adCampaigns.length > 0 ? (
           adCampaigns.map((c) => (
             <p key={c.campaignNumber} className="text-xs text-zinc-600 dark:text-zinc-400">
-              حملة #{c.campaignNumber} ({AD_TARGET_LABELS[c.target]}، ميزانية {c.budget.toLocaleString("ar")} درهم): ربحت{" "}
-              {c.bonusUnits.toLocaleString("ar")} وحدة عبر {CHANNEL_LABELS[c.wonChannel]}
+              {t("result.campaignLine", language, {
+                number: c.campaignNumber,
+                target: t(`sales.adTarget.${c.target}`, language),
+                budget: c.budget.toLocaleString("ar"),
+                units: c.bonusUnits.toLocaleString("ar"),
+                channel: t(`sales.channel.${c.wonChannel}`, language),
+              })}
             </p>
           ))
         ) : (
-          <p className="text-xs text-zinc-600 dark:text-zinc-400">لم تُشغَّل أي حملة إعلانية.</p>
+          <p className="text-xs text-zinc-600 dark:text-zinc-400">{t("result.noCampaigns", language)}</p>
         )}
       </div>
     </div>

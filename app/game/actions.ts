@@ -47,7 +47,9 @@ import {
   applySalesEmployeeHire,
   getAdCampaigns,
   applyAdCampaign,
+  getLanguage,
 } from "@/lib/db";
+import { t, type Language } from "@/lib/i18n";
 import { TOTAL_STAGES } from "@/lib/game-stages";
 import {
   MARKET_RESEARCH_SERVICES,
@@ -137,6 +139,17 @@ async function requireUserId(): Promise<string> {
     throw new Error("غير مسجل دخول");
   }
   return session.user.id;
+}
+
+/**
+ * نفس requireUserId بالإضافة للغة المخزَّنة (افتراضي "ar" لو لسا ما
+ * اختار — حالة نظرية بس، صفحة اختيار اللغة تمنع الوصول هون أصلاً بدونها)
+ * — تُستخدم لترجمة رسائل التحقق/الرفض المُرجَعة من هالأكشنز.
+ */
+async function requireUserIdAndLanguage(): Promise<{ userId: string; language: Language }> {
+  const userId = await requireUserId();
+  const language = (await getLanguage(userId)) ?? "ar";
+  return { userId, language };
 }
 
 /**
@@ -246,7 +259,7 @@ export async function confirmMarketResearchPurchase(
   _prevState: MarketResearchFormState,
   formData: FormData
 ): Promise<MarketResearchFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const validKeys = new Set(MARKET_RESEARCH_SERVICES.map((s) => s.key));
   const selected = [
@@ -264,7 +277,7 @@ export async function confirmMarketResearchPurchase(
     0
   );
   if (total > credit) {
-    return { error: `مجموع الاختيارات (${total}) أكبر من الحد الأقصى (${credit}).` };
+    return { error: t("error.marketResearch.overBudget", language, { total, credit }) };
   }
 
   const outcomes: MarketResearchResults["outcomes"] = {};
@@ -305,12 +318,12 @@ export async function confirmFinancingDecision(
   _prevState: FinancingFormState,
   formData: FormData
 ): Promise<FinancingFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const tierKey = String(formData.get("tier") ?? "");
   const tier = getFinancingTier(tierKey);
   if (!tier) {
-    return { error: "لازم تختار مستوى تمويل." };
+    return { error: t("error.financing.tierRequired", language) };
   }
 
   const rawAmount = formData.get(`amount_${tier.key}`);
@@ -324,7 +337,10 @@ export async function confirmFinancingDecision(
     amount > tier.max
   ) {
     return {
-      error: `رأس المال لازم يكون رقم صحيح بين ${tier.min.toLocaleString("ar")} و${tier.max.toLocaleString("ar")}.`,
+      error: t("error.financing.amountRange", language, {
+        min: tier.min.toLocaleString("ar"),
+        max: tier.max.toLocaleString("ar"),
+      }),
     };
   }
 
@@ -352,11 +368,11 @@ export async function confirmLicensingDecision(
   _prevState: LicensingFormState,
   formData: FormData
 ): Promise<LicensingFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const path = String(formData.get("path") ?? "") as LicensingPath | "";
   if (path !== "agency" && path !== "self") {
-    return { error: "لازم تختار مسار ترخيص." };
+    return { error: t("error.licensing.pathRequired", language) };
   }
 
   const currentCapital = await getCurrentCapital(userId);
@@ -364,7 +380,10 @@ export async function confirmLicensingDecision(
   if (path === "agency") {
     if (AGENCY_COST > currentCapital) {
       return {
-        error: `التكلفة (${AGENCY_COST.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+        error: t("error.licensing.agencyInsufficientFunds", language, {
+          cost: AGENCY_COST.toLocaleString("ar"),
+          capital: currentCapital.toLocaleString("ar"),
+        }),
       };
     }
 
@@ -397,7 +416,10 @@ export async function confirmLicensingDecision(
 
   if (totalCost > currentCapital) {
     return {
-      error: `التكلفة الإجمالية (${totalCost.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+      error: t("error.licensing.selfInsufficientFunds", language, {
+        cost: totalCost.toLocaleString("ar"),
+        capital: currentCapital.toLocaleString("ar"),
+      }),
     };
   }
 
@@ -428,11 +450,11 @@ export type NegotiationFormState = { success: boolean; discountPercent: number }
 export async function negotiateRentPrice(
   _prevState: NegotiationFormState
 ): Promise<NegotiationFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const existingResult = await getRentResult(userId);
   if (existingResult) {
-    return { error: "قرار الإيجار مؤكّد أصلاً." };
+    return { error: t("error.rent.alreadyConfirmed", language) };
   }
 
   const existingNegotiation = await getRentNegotiation(userId);
@@ -476,17 +498,17 @@ export async function confirmRentDecision(
   _prevState: RentFormState,
   formData: FormData
 ): Promise<RentFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const rentId = String(formData.get("rentId") ?? "");
   const option = getRentOption(rentId);
   if (!option) {
-    return { error: "لازم تختار خيار إيجار." };
+    return { error: t("error.rent.optionRequired", language) };
   }
 
   const paymentMethod = String(formData.get("paymentMethod") ?? "");
   if (paymentMethod !== "cash" && paymentMethod !== "installments") {
-    return { error: "لازم تختار طريقة دفع." };
+    return { error: t("error.rent.paymentMethodRequired", language) };
   }
 
   const viewedDetails = formData.get("viewedDetails") === "true";
@@ -511,7 +533,10 @@ export async function confirmRentDecision(
   const currentCapital = await getCurrentCapital(userId);
   if (amountPaidNow > currentCapital) {
     return {
-      error: `الدفعة المطلوبة (${amountPaidNow.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+      error: t("error.rent.insufficientFunds", language, {
+        amount: amountPaidNow.toLocaleString("ar"),
+        capital: currentCapital.toLocaleString("ar"),
+      }),
     };
   }
 
@@ -583,18 +608,18 @@ export async function confirmEquipmentDecision(
   _prevState: EquipmentFormState,
   formData: FormData
 ): Promise<EquipmentFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const equipmentType = String(formData.get("equipmentType") ?? "");
   const option = getEquipmentOption(equipmentType);
   if (!option) {
-    return { error: "لازم تختار نوع خط." };
+    return { error: t("error.equipment.typeRequired", language) };
   }
 
   const spaceSize = await getRentSpaceSize(userId);
   const spaceBudget = spaceSize ? SPACE_BUDGET[spaceSize] : 0;
   if (option.spaceUsed > spaceBudget) {
-    return { error: "هذا الخط لا يناسب المساحة المستأجرة." };
+    return { error: t("error.equipment.spaceUnfit", language) };
   }
 
   const rawWorkerCount = formData.get("workerCount");
@@ -606,15 +631,15 @@ export async function confirmEquipmentDecision(
     !Number.isInteger(workerCount) ||
     workerCount < 1
   ) {
-    return { error: "عدد العمال لازم يكون رقم صحيح 1 أو أكثر." };
+    return { error: t("error.equipment.workerCountInvalid", language) };
   }
 
   const paymentMethod = String(formData.get("paymentMethod") ?? "");
   if (paymentMethod !== "cash" && paymentMethod !== "installments") {
-    return { error: "لازم تختار طريقة دفع." };
+    return { error: t("error.equipment.paymentMethodRequired", language) };
   }
   if (paymentMethod === "installments" && !option.allowsInstallments) {
-    return { error: "هذا الخط كاش إجباري — ما في خيار تقسيط له." };
+    return { error: t("error.equipment.installmentsNotAllowed", language) };
   }
 
   let amountPaidNow: number;
@@ -630,7 +655,10 @@ export async function confirmEquipmentDecision(
   const currentCapital = await getCurrentCapital(userId);
   if (amountPaidNow > currentCapital) {
     return {
-      error: `التكلفة المطلوبة (${amountPaidNow.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+      error: t("error.equipment.insufficientFunds", language, {
+        amount: amountPaidNow.toLocaleString("ar"),
+        capital: currentCapital.toLocaleString("ar"),
+      }),
     };
   }
 
@@ -696,7 +724,7 @@ export async function confirmHiringDecision(
   _prevState: HiringFormState,
   formData: FormData
 ): Promise<HiringFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const chemistChoice = String(formData.get("chemist") ?? "");
   const accountantChoice = String(formData.get("accountant") ?? "");
@@ -707,10 +735,10 @@ export async function confirmHiringDecision(
   const accountantCandidate = accountantRole?.candidates.find((c) => c.choice === accountantChoice);
 
   if (!chemistCandidate) {
-    return { error: "لازم تقرر بخصوص الكيميائي (وظّف أو لا توظف)." };
+    return { error: t("error.hiring.chemistRequired", language) };
   }
   if (!accountantCandidate) {
-    return { error: "لازم تقرر بخصوص المحاسب (وظّف أو لا توظف)." };
+    return { error: t("error.hiring.accountantRequired", language) };
   }
 
   const hiredCount = (chemistCandidate.choice !== "none" ? 1 : 0) + (accountantCandidate.choice !== "none" ? 1 : 0);
@@ -720,7 +748,10 @@ export async function confirmHiringDecision(
     const currentCapital = await getCurrentCapital(userId);
     if (visaDeduction > currentCapital) {
       return {
-        error: `تكلفة الإقامة المطلوبة (${visaDeduction.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+        error: t("error.hiring.visaInsufficientFunds", language, {
+          amount: visaDeduction.toLocaleString("ar"),
+          capital: currentCapital.toLocaleString("ar"),
+        }),
       };
     }
   }
@@ -794,11 +825,11 @@ export async function confirmProductionPurchase(
   _prevState: ProductionFormState,
   formData: FormData
 ): Promise<ProductionFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const supplierChoice = String(formData.get("supplierChoice") ?? "") as SupplierChoice | "";
   if (supplierChoice !== "cheap" && supplierChoice !== "trusted") {
-    return { error: "لازم تختار مورّد." };
+    return { error: t("error.production.supplierRequired", language) };
   }
 
   const rawQuantity = formData.get("purchaseQuantity");
@@ -810,17 +841,17 @@ export async function confirmProductionPurchase(
     !Number.isInteger(purchaseQuantity) ||
     purchaseQuantity < 0
   ) {
-    return { error: "الكمية لازم تكون رقم صحيح 0 أو أكثر." };
+    return { error: t("error.production.quantityInvalid", language) };
   }
 
   const processingMode = String(formData.get("processingMode") ?? "") as ProcessingMode | "";
   if (processingMode !== "fast" && processingMode !== "precise") {
-    return { error: "لازم تختار وضع معالجة." };
+    return { error: t("error.production.modeRequired", language) };
   }
 
   const productLineType = String(formData.get("productLineType") ?? "") as ProductLineType | "";
   if (productLineType !== "single" && productLineType !== "diversified") {
-    return { error: "لازم تختار نوع خط المنتج." };
+    return { error: t("error.production.lineRequired", language) };
   }
 
   const rawSmallPercent = formData.get("smallPercent");
@@ -839,17 +870,17 @@ export async function confirmProductionPurchase(
     smallPercent < 0 ||
     largePercent < 0
   ) {
-    return { error: "نسب التعبئة لازم تكون أرقام صحيحة 0 أو أكثر." };
+    return { error: t("error.production.percentInvalid", language) };
   }
   if (smallPercent + largePercent !== 100) {
-    return { error: `نسب التعبئة لازم تجمع 100 بالضبط (المجموع الحالي: ${smallPercent + largePercent}).` };
+    return { error: t("error.production.percentSumInvalid", language, { sum: smallPercent + largePercent }) };
   }
 
   const qcPurchased = formData.get("qcPurchased") === "on";
 
   const equipmentSetup = await getEquipmentSetup(userId);
   if (!equipmentSetup) {
-    return { error: "لازم تأكّد قرار المعدات قبل الإنتاج." };
+    return { error: t("error.production.equipmentRequired", language) };
   }
   const productionCapacity = getProductionCapacity(equipmentSetup.equipmentType, equipmentSetup.workerCount);
 
@@ -867,7 +898,13 @@ export async function confirmProductionPurchase(
   const currentCapital = await getCurrentCapital(userId);
   if (totalCost > currentCapital) {
     return {
-      error: `التكلفة الإجمالية (${totalCost.toLocaleString("ar")}${qcPurchased ? ` — شاملة ${QC_COST.toLocaleString("ar")} لفحص الجودة` : ""}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+      error: t("error.production.insufficientFunds", language, {
+        cost: totalCost.toLocaleString("ar"),
+        qcSuffix: qcPurchased
+          ? t("error.production.qcSuffix", language, { qcCost: QC_COST.toLocaleString("ar") })
+          : "",
+        capital: currentCapital.toLocaleString("ar"),
+      }),
     };
   }
 
@@ -903,7 +940,7 @@ export async function confirmProductionPurchase(
   const projectedStorageUsage = producedUnits + currentInventory + unsoldFinishedUnits;
 
   if (projectedStorageUsage > pieceStorageCapacity) {
-    return { error: "المستودع ممتلئ — بع من مخزونك الحالي أو وسّع مساحتك أولاً." };
+    return { error: t("error.production.storageFull", language) };
   }
 
   // هدر طبيعي 3% ثابت (دايماً)، ثم خطأ كيميائي احتمالي حسب مستوى الخبرة
@@ -998,11 +1035,11 @@ export async function confirmSaleTransaction(
   _prevState: SalesFormState,
   formData: FormData
 ): Promise<SalesFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const channel = String(formData.get("channel") ?? "") as SalesChannel | "";
   if (channel !== "discount-market" && channel !== "wholesaler" && channel !== "boutique-trader") {
-    return { error: "لازم تختار قناة بيع." };
+    return { error: t("error.sales.channelRequired", language) };
   }
 
   const rawUnitsSold = formData.get("unitsSold");
@@ -1014,7 +1051,7 @@ export async function confirmSaleTransaction(
     !Number.isInteger(unitsSold) ||
     unitsSold < 1
   ) {
-    return { error: "الكمية لازم تكون رقم صحيح 1 أو أكثر." };
+    return { error: t("error.sales.quantityInvalid", language) };
   }
 
   let paymentMethod: WholesalePaymentMethod = "cash";
@@ -1026,7 +1063,7 @@ export async function confirmSaleTransaction(
       rawPaymentMethod !== "credit-60" &&
       rawPaymentMethod !== "credit-90"
     ) {
-      return { error: "لازم تختار طريقة دفع لقناة تجار الجملة." };
+      return { error: t("error.sales.paymentMethodRequired", language) };
     }
     paymentMethod = rawPaymentMethod;
   }
@@ -1034,7 +1071,7 @@ export async function confirmSaleTransaction(
   const cycles = await getProductionCycles(userId);
 
   if (channel === "boutique-trader" && !isBoutiqueTraderUnlocked(cycles)) {
-    return { error: "قناة تجار صغار مقفولة — لازم تنويع السلة (productLineType=diversified) بدورة إنتاج واحدة على الأقل." };
+    return { error: t("error.sales.boutiqueLocked", language) };
   }
 
   const [transactions, bonusUnits, salesEmployeeHired] = await Promise.all([
@@ -1051,7 +1088,12 @@ export async function confirmSaleTransaction(
   const available = channel === "boutique-trader" ? availableSmallUnits : availableLargeUnits;
 
   if (unitsSold > available) {
-    return { error: `الكمية المطلوبة (${unitsSold.toLocaleString("ar")}) أكبر من المتاح فعلياً (${available.toLocaleString("ar")}).` };
+    return {
+      error: t("error.sales.quantityExceeds", language, {
+        requested: unitsSold.toLocaleString("ar"),
+        available: available.toLocaleString("ar"),
+      }),
+    };
   }
 
   const staticFields: Record<string, unknown> = {};
@@ -1132,11 +1174,11 @@ export async function confirmAdCampaign(
   _prevState: AdCampaignFormState,
   formData: FormData
 ): Promise<AdCampaignFormState> {
-  const userId = await requireUserId();
+  const { userId, language } = await requireUserIdAndLanguage();
 
   const target = String(formData.get("target") ?? "") as AdTarget | "";
   if (target !== "premium" && target !== "wholesale" && target !== "discount") {
-    return { error: "لازم تختار هدف توجيه." };
+    return { error: t("error.ads.targetRequired", language) };
   }
 
   const rawBudget = formData.get("budget");
@@ -1148,13 +1190,16 @@ export async function confirmAdCampaign(
     !Number.isInteger(budget) ||
     budget < AD_BUDGET_MINIMUM
   ) {
-    return { error: `الميزانية لازم تكون رقم صحيح ${AD_BUDGET_MINIMUM.toLocaleString("ar")} أو أكثر.` };
+    return { error: t("error.ads.budgetInvalid", language, { min: AD_BUDGET_MINIMUM.toLocaleString("ar") }) };
   }
 
   const currentCapital = await getCurrentCapital(userId);
   if (budget > currentCapital) {
     return {
-      error: `الميزانية (${budget.toLocaleString("ar")}) أكبر من رصيدك المتاح (${currentCapital.toLocaleString("ar")}).`,
+      error: t("error.ads.insufficientFunds", language, {
+        budget: budget.toLocaleString("ar"),
+        capital: currentCapital.toLocaleString("ar"),
+      }),
     };
   }
 

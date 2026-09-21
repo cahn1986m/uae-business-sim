@@ -10,6 +10,7 @@ import {
   type EquipmentResult,
 } from "@/lib/equipment";
 import type { RentSpaceSize } from "@/lib/rent";
+import { t, type Language } from "@/lib/i18n";
 
 /**
  * واجهة مرحلة "المعدات" — خيارين متطابقين بصرياً (نفس التصميم، فرق
@@ -19,9 +20,11 @@ import type { RentSpaceSize } from "@/lib/rent";
 export default function EquipmentStage({
   spaceSize,
   result,
+  language,
 }: {
   spaceSize: RentSpaceSize;
   result: EquipmentResult | null;
+  language: Language;
 }) {
   const [state, formAction, isPending] = useActionState<EquipmentFormState, FormData>(
     confirmEquipmentDecision,
@@ -40,21 +43,25 @@ export default function EquipmentStage({
     return (
       <div className="w-full max-w-md space-y-3">
         <p className="text-sm text-zinc-500">
-          نوع الخط: <span className="font-medium">{option?.label}</span>
+          {t("equipment.typeLabel", language)}{" "}
+          <span className="font-medium">{option ? t(`equipment.option.${option.type}`, language) : null}</span>
         </p>
 
         <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
           <p className="text-sm">
-            عدد عمال الإنتاج: <span className="font-medium">{result.workerCount}</span>
+            {t("equipment.workerCountLabel", language)} <span className="font-medium">{result.workerCount}</span>
           </p>
           <p className="mt-1 text-sm">
-            راتب العمال الشهري الإجمالي:{" "}
+            {t("equipment.workerMonthlyTotalLabel", language)}{" "}
             <span className="font-medium">{result.workerMonthlyTotal.toLocaleString("ar")}</span>
           </p>
           <p className="mt-1 text-sm">
             {result.paymentMethod === "cash"
-              ? `دُفع كاش كامل: ${result.amountPaidNow.toLocaleString("ar")}`
-              : `دُفع الآن: ${result.amountPaidNow.toLocaleString("ar")} — قسط شهري: ${result.monthlyAmount?.toLocaleString("ar")} لـ12 شهر`}
+              ? t("equipment.paidCash", language, { amount: result.amountPaidNow.toLocaleString("ar") })
+              : t("equipment.paidInstallments", language, {
+                  amount: result.amountPaidNow.toLocaleString("ar"),
+                  monthly: result.monthlyAmount?.toLocaleString("ar") ?? "",
+                })}
           </p>
         </div>
       </div>
@@ -76,7 +83,7 @@ export default function EquipmentStage({
 
   return (
     <form action={formAction} className="w-full max-w-md space-y-4">
-      <p className="text-xs text-zinc-500">ميزانية المساحة المتاحة: {spaceBudget} وحدة</p>
+      <p className="text-xs text-zinc-500">{t("equipment.spaceBudget", language, { budget: spaceBudget })}</p>
 
       <div className="space-y-3">
         {EQUIPMENT_OPTIONS.map((o) => (
@@ -86,7 +93,7 @@ export default function EquipmentStage({
             className="flex flex-col gap-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
           >
             <span className="flex items-center justify-between">
-              <span className="text-sm font-medium">{o.label}</span>
+              <span className="text-sm font-medium">{t(`equipment.option.${o.type}`, language)}</span>
               <input
                 id={`equip_${o.type}`}
                 name="equipmentType"
@@ -102,12 +109,18 @@ export default function EquipmentStage({
               />
             </span>
             <span className="text-xs text-zinc-500">
-              التكلفة: {o.cost.toLocaleString("ar")} — مساحة: {o.spaceUsed} وحدة — عمال مقترح:{" "}
-              {o.suggestedWorkers} — {o.allowsInstallments ? "كاش أو تقسيط" : "كاش فقط"}
+              {t("equipment.costSpaceWorkersLine", language, {
+                cost: o.cost.toLocaleString("ar"),
+                space: o.spaceUsed,
+                workers: o.suggestedWorkers,
+                paymentOptions: o.allowsInstallments
+                  ? t("equipment.cashOrInstallments", language)
+                  : t("equipment.cashOnly", language),
+              })}
             </span>
             {o.spaceUsed > spaceBudget && (
               <span className="text-xs text-red-600 dark:text-red-400">
-                ⚠️ ما يناسب مساحتك المتاحة ({spaceBudget} وحدة)
+                {t("equipment.spaceUnfit", language, { budget: spaceBudget })}
               </span>
             )}
           </label>
@@ -118,7 +131,7 @@ export default function EquipmentStage({
         <div className="space-y-3 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
           <div>
             <label htmlFor="workerCount" className="mb-2 block text-sm font-medium">
-              عدد عمال الإنتاج (المقترح: {option.suggestedWorkers})
+              {t("equipment.workerCountInputLabel", language, { suggested: option.suggestedWorkers })}
             </label>
             <input
               id="workerCount"
@@ -132,8 +145,11 @@ export default function EquipmentStage({
             />
           </div>
           <p className="text-xs text-zinc-500">
-            راتب شهري إجمالي للعمال: {workerMonthlyPreview.toLocaleString("ar")} (
-            {WORKER_MONTHLY_SALARY.toLocaleString("ar")} × {parsedWorkerCount})
+            {t("equipment.workerMonthlyPreview", language, {
+              total: workerMonthlyPreview.toLocaleString("ar"),
+              salary: WORKER_MONTHLY_SALARY.toLocaleString("ar"),
+              count: parsedWorkerCount,
+            })}
           </p>
 
           {option.allowsInstallments && (
@@ -144,7 +160,7 @@ export default function EquipmentStage({
                   checked={paymentMethod === "cash"}
                   onChange={() => setPaymentMethod("cash")}
                 />
-                كاش كامل
+                {t("common.cashFull", language)}
               </label>
               <label className="flex items-center gap-1">
                 <input
@@ -152,7 +168,7 @@ export default function EquipmentStage({
                   checked={paymentMethod === "installments"}
                   onChange={() => setPaymentMethod("installments")}
                 />
-                تقسيط
+                {t("common.installments", language)}
               </label>
             </div>
           )}
@@ -164,8 +180,11 @@ export default function EquipmentStage({
 
           <p className="text-xs text-zinc-500">
             {monthlyPreview !== null
-              ? `دفعة أولى الآن: ${downPayment.toLocaleString("ar")} — قسط شهري تقريبي: ${monthlyPreview.toLocaleString("ar")} لـ12 شهر`
-              : `تدفع الآن: ${downPayment.toLocaleString("ar")}`}
+              ? t("rent.payingNowInstallments", language, {
+                  amount: downPayment.toLocaleString("ar"),
+                  monthly: monthlyPreview.toLocaleString("ar"),
+                })
+              : t("rent.payingNowCash", language, { amount: downPayment.toLocaleString("ar") })}
           </p>
         </div>
       )}
@@ -181,7 +200,7 @@ export default function EquipmentStage({
         disabled={isPending || !option}
         className="w-full rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        {isPending ? "جاري التأكيد..." : "تأكيد"}
+        {isPending ? t("common.confirming", language) : t("common.confirm", language)}
       </button>
     </form>
   );

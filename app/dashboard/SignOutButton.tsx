@@ -2,8 +2,9 @@
 
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth/client";
+import { t, type Language } from "@/lib/i18n";
 
-export default function SignOutButton() {
+export default function SignOutButton({ language }: { language: Language }) {
   const router = useRouter();
 
   return (
@@ -15,7 +16,7 @@ export default function SignOutButton() {
       }}
       className="rounded-md border border-zinc-300 px-3 py-1.5 text-sm font-medium transition-colors hover:bg-zinc-100 dark:border-zinc-700 dark:hover:bg-zinc-900"
     >
-      تسجيل خروج
+      {t("dashboard.signOut", language)}
     </button>
   );
 }

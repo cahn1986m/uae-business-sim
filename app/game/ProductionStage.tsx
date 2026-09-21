@@ -14,36 +14,13 @@ import {
   type ProcessingMode,
   type ProductLineType,
 } from "@/lib/production";
-
-const SUPPLIER_LABELS: Record<SupplierChoice, string> = {
-  cheap: "مورّد رخيص",
-  trusted: "مورّد موثوق",
-};
-
-const PROCESSING_MODE_LABELS: Record<ProcessingMode, string> = {
-  fast: "معالجة سريعة (جودة أقل)",
-  precise: "معالجة دقيقة (جودة أعلى)",
-};
-
-const PROCESSING_MODE_HINTS: Record<ProcessingMode, string> = {
-  fast: "كل 1 وحدة مادة خام → 2 وحدة منتج",
-  precise: "كل 2 وحدة مادة خام → 1 وحدة منتج",
-};
-
-const PRODUCT_LINE_LABELS: Record<ProductLineType, string> = {
-  single: "منتج واحد",
-  diversified: "تنويع السلة",
-};
-
-const QUALITY_LABELS: Record<string, string> = {
-  low: "منخفضة",
-  high: "عالية",
-};
+import { t, type Language } from "@/lib/i18n";
 
 type CycleProps = {
   capacity: number;
   rawMaterialInventory: number;
   cycles: ProductionCycle[];
+  language: Language;
 };
 
 /**
@@ -70,6 +47,7 @@ function ProductionCycleForm({
   capacity,
   rawMaterialInventory,
   cycles,
+  language,
   onStartNewCycle,
 }: CycleProps & { onStartNewCycle: () => void }) {
   const [state, formAction, isPending] = useActionState<ProductionFormState, FormData>(
@@ -90,19 +68,22 @@ function ProductionCycleForm({
       <div className="w-full max-w-md space-y-4">
         <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
           <p className="text-sm font-medium">
-            أنتجت {state.finalProducedUnits.toLocaleString("ar")} وحدة هذه الدورة
+            {t("production.finalProducedLine", language, { units: state.finalProducedUnits.toLocaleString("ar") })}
           </p>
           <p className="mt-1 text-xs text-zinc-500">
-            (قبل الهدر والأخطاء: {state.producedUnits.toLocaleString("ar")} وحدة)
+            {t("production.beforeWasteLine", language, { units: state.producedUnits.toLocaleString("ar") })}
           </p>
           <p className="mt-1 text-xs text-zinc-500">
-            جودة: {QUALITY_LABELS[state.quality]} — صغير: {state.smallUnits.toLocaleString("ar")} — كبير:{" "}
-            {state.largeUnits.toLocaleString("ar")}
+            {t("production.qualityLine", language, {
+              quality: t(`production.quality.${state.quality}`, language),
+              small: state.smallUnits.toLocaleString("ar"),
+              large: state.largeUnits.toLocaleString("ar"),
+            })}
           </p>
           {state.qcReport &&
             (state.chemistErrorOccurred ? (
               <div className="mt-1">
-                <DramaticAlert>
+                <DramaticAlert language={language}>
                   <p className="text-xs">{state.qcReport}</p>
                 </DramaticAlert>
               </div>
@@ -110,7 +91,10 @@ function ProductionCycleForm({
               <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">{state.qcReport}</p>
             ))}
           <p className="mt-1 text-xs text-zinc-500">
-            دورة رقم {cycles.length} — مخزون المواد الخام الحالي: {rawMaterialInventory.toLocaleString("ar")}
+            {t("production.cycleInventoryLine", language, {
+              number: cycles.length,
+              inventory: rawMaterialInventory.toLocaleString("ar"),
+            })}
           </p>
         </div>
 
@@ -119,7 +103,7 @@ function ProductionCycleForm({
           onClick={onStartNewCycle}
           className="w-full rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
         >
-          دورة إنتاج جديدة
+          {t("production.newCycleButton", language)}
         </button>
       </div>
     );
@@ -139,16 +123,14 @@ function ProductionCycleForm({
   return (
     <form action={formAction} className="w-full max-w-md space-y-4">
       <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
-        <p className="text-sm">
-          طاقة الإنتاج لهذه الدورة: <span className="font-medium">{capacity.toLocaleString("ar")}</span> وحدة
-        </p>
+        <p className="text-sm">{t("production.capacityLine", language, { capacity: capacity.toLocaleString("ar") })}</p>
         <p className="mt-1 text-sm">
-          مخزون المواد الخام الحالي: <span className="font-medium">{rawMaterialInventory.toLocaleString("ar")}</span>
+          {t("production.inventoryLine", language, { inventory: rawMaterialInventory.toLocaleString("ar") })}
         </p>
       </div>
 
       <div className="space-y-3">
-        <p className="text-sm font-semibold">شراء مواد خام</p>
+        <p className="text-sm font-semibold">{t("production.purchaseTitle", language)}</p>
         {(["cheap", "trusted"] as SupplierChoice[]).map((choice) => (
           <label
             key={choice}
@@ -156,7 +138,7 @@ function ProductionCycleForm({
             className="flex flex-col gap-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
           >
             <span className="flex items-center justify-between">
-              <span className="text-sm font-medium">{SUPPLIER_LABELS[choice]}</span>
+              <span className="text-sm font-medium">{t(`production.supplier.${choice}`, language)}</span>
               <input
                 id={`supplier_${choice}`}
                 name="supplierChoice"
@@ -168,7 +150,7 @@ function ProductionCycleForm({
               />
             </span>
             <span className="text-xs text-zinc-500">
-              سعر الوحدة: {SUPPLIER_PRICE_PER_UNIT[choice].toLocaleString("ar")} درهم
+              {t("production.unitPriceLine", language, { price: SUPPLIER_PRICE_PER_UNIT[choice].toLocaleString("ar") })}
             </span>
           </label>
         ))}
@@ -176,7 +158,7 @@ function ProductionCycleForm({
 
       <div>
         <label htmlFor="purchaseQuantity" className="mb-2 block text-sm font-medium">
-          الكمية المطلوب شراؤها
+          {t("production.quantityLabel", language)}
         </label>
         <input
           id="purchaseQuantity"
@@ -192,13 +174,13 @@ function ProductionCycleForm({
 
       {supplierChoice && (
         <p className="text-xs text-zinc-500">
-          التكلفة التقديرية: {previewCost.toLocaleString("ar")} درهم
-          {bulkEligible && ` (شامل خصم شراء بالجملة ${BULK_DISCOUNT_PERCENT}%)`}
+          {t("production.estimatedCost", language, { cost: previewCost.toLocaleString("ar") })}
+          {bulkEligible && t("production.bulkDiscountSuffix", language, { percent: BULK_DISCOUNT_PERCENT })}
         </p>
       )}
 
       <div className="space-y-3">
-        <p className="text-sm font-semibold">وضع المعالجة</p>
+        <p className="text-sm font-semibold">{t("production.modeTitle", language)}</p>
         {(["fast", "precise"] as ProcessingMode[]).map((mode) => (
           <label
             key={mode}
@@ -206,7 +188,7 @@ function ProductionCycleForm({
             className="flex flex-col gap-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
           >
             <span className="flex items-center justify-between">
-              <span className="text-sm font-medium">{PROCESSING_MODE_LABELS[mode]}</span>
+              <span className="text-sm font-medium">{t(`production.mode.${mode}`, language)}</span>
               <input
                 id={`processing_${mode}`}
                 name="processingMode"
@@ -217,20 +199,20 @@ function ProductionCycleForm({
                 className="h-4 w-4"
               />
             </span>
-            <span className="text-xs text-zinc-500">{PROCESSING_MODE_HINTS[mode]}</span>
+            <span className="text-xs text-zinc-500">{t(`production.modeHint.${mode}`, language)}</span>
           </label>
         ))}
       </div>
 
       <div className="space-y-3">
-        <p className="text-sm font-semibold">خط المنتج</p>
+        <p className="text-sm font-semibold">{t("production.lineTitle", language)}</p>
         {(["single", "diversified"] as ProductLineType[]).map((type) => (
           <label
             key={type}
             htmlFor={`productLine_${type}`}
             className="flex items-center justify-between rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
           >
-            <span className="text-sm font-medium">{PRODUCT_LINE_LABELS[type]}</span>
+            <span className="text-sm font-medium">{t(`production.line.${type}`, language)}</span>
             <input
               id={`productLine_${type}`}
               name="productLineType"
@@ -245,11 +227,11 @@ function ProductionCycleForm({
       </div>
 
       <div className="space-y-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
-        <p className="text-sm font-semibold">توزيع التعبئة (النسبة يجب أن تجمع 100%)</p>
+        <p className="text-sm font-semibold">{t("production.packagingTitle", language)}</p>
         <div className="flex gap-3">
           <div className="flex-1">
             <label htmlFor="smallPercent" className="mb-1 block text-xs text-zinc-500">
-              نسبة التعبئة الصغيرة (%)
+              {t("production.smallPercentLabel", language)}
             </label>
             <input
               id="smallPercent"
@@ -264,7 +246,7 @@ function ProductionCycleForm({
           </div>
           <div className="flex-1">
             <label htmlFor="largePercent" className="mb-1 block text-xs text-zinc-500">
-              نسبة التعبئة الكبيرة (%)
+              {t("production.largePercentLabel", language)}
             </label>
             <input
               id="largePercent"
@@ -279,7 +261,8 @@ function ProductionCycleForm({
           </div>
         </div>
         <p className={`text-xs ${percentsValid ? "text-zinc-500" : "text-red-600 dark:text-red-400"}`}>
-          المجموع الحالي: {percentSum}%{!percentsValid && " — لازم يكون 100 بالضبط"}
+          {t("production.percentSum", language, { sum: percentSum })}
+          {!percentsValid && t("production.percentInvalidSuffix", language)}
         </p>
       </div>
 
@@ -287,9 +270,7 @@ function ProductionCycleForm({
         htmlFor="qcPurchased"
         className="flex items-center justify-between rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
       >
-        <span className="text-sm font-medium">
-          فحص جودة (QC) — {QC_COST.toLocaleString("ar")} درهم
-        </span>
+        <span className="text-sm font-medium">{t("production.qcLabel", language, { cost: QC_COST.toLocaleString("ar") })}</span>
         <input
           id="qcPurchased"
           name="qcPurchased"
@@ -311,7 +292,7 @@ function ProductionCycleForm({
         disabled={isPending || !supplierChoice || purchaseQuantity === "" || !processingMode || !productLineType || smallPercent === "" || largePercent === ""}
         className="w-full rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
       >
-        {isPending ? "جاري الشراء..." : "شراء وإنتاج"}
+        {isPending ? t("production.submitting", language) : t("production.submitButton", language)}
       </button>
     </form>
   );

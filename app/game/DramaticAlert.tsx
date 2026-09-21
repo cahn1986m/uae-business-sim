@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { t, type Language } from "@/lib/i18n";
 
 /**
  * إشعار "رجة الهاتف" — لحظات مفاجئة/سلبية فقط (نصب، مفاجأة ترخيص،
@@ -8,7 +9,13 @@ import { useState } from "react";
  * مكتبات خارجية)، ويبقى ظاهراً حتى يضغط اللاعب زر الإغلاق — مجرد
  * تنبيه بصري inline، بدون أي حجب (لا overlay ولا backdrop).
  */
-export default function DramaticAlert({ children }: { children: React.ReactNode }) {
+export default function DramaticAlert({
+  children,
+  language,
+}: {
+  children: React.ReactNode;
+  language: Language;
+}) {
   const [dismissed, setDismissed] = useState(false);
 
   if (dismissed) return null;
@@ -22,7 +29,7 @@ export default function DramaticAlert({ children }: { children: React.ReactNode 
       <button
         type="button"
         onClick={() => setDismissed(true)}
-        aria-label="إغلاق الإشعار"
+        aria-label={t("common.closeAlert", language)}
         className="text-red-500 hover:text-red-700 dark:text-red-400 dark:hover:text-red-200"
       >
         ✕

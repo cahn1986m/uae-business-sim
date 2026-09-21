@@ -12,16 +12,10 @@ import {
   MISSING_SERVICES,
   MISSING_SERVICES_TOTAL,
   type RentId,
-  type RentSpaceSize,
   type NegotiationResult,
   type RentResult,
 } from "@/lib/rent";
-
-const SPACE_LABELS: Record<RentSpaceSize, string> = {
-  small: "صغيرة",
-  medium: "متوسطة",
-  large: "كبيرة",
-};
+import { t, type Language } from "@/lib/i18n";
 
 /**
  * واجهة مرحلة "الإيجار" — الأربعة خيارات معروضة بنفس التصميم بالضبط
@@ -32,9 +26,11 @@ const SPACE_LABELS: Record<RentSpaceSize, string> = {
 export default function RentStage({
   negotiation,
   result,
+  language,
 }: {
   negotiation: NegotiationResult | null;
   result: RentResult | null;
+  language: Language;
 }) {
   const [confirmState, confirmAction, confirmPending] = useActionState<RentFormState, FormData>(
     confirmRentDecision,
@@ -55,29 +51,34 @@ export default function RentStage({
     return (
       <div className="w-full max-w-md space-y-3">
         <p className="text-sm text-zinc-500">
-          قرار الإيجار: <span className="font-medium">{option?.label}</span>
+          {t("rent.decisionLabel", language)}{" "}
+          <span className="font-medium">{option ? t(`rent.option.${option.id}`, language) : null}</span>
         </p>
 
         <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
           <p className="text-sm">
-            السعر النهائي: <span className="font-medium">{result.finalPrice.toLocaleString("ar")}</span>
+            {t("rent.finalPriceLabel", language)}{" "}
+            <span className="font-medium">{result.finalPrice.toLocaleString("ar")}</span>
           </p>
           {result.discountPercent > 0 && (
             <p className="mt-1 text-xs text-zinc-500">
-              تفاوض ناجح — خصم {result.discountPercent}%
+              {t("rent.negotiationSuccessLine", language, { percent: result.discountPercent })}
             </p>
           )}
           <p className="mt-1 text-sm">
             {result.paymentMethod === "cash"
-              ? `دُفع كاش كامل: ${result.amountPaidNow.toLocaleString("ar")}`
-              : `دُفع الآن: ${result.amountPaidNow.toLocaleString("ar")} — قسط شهري: ${result.monthlyAmount?.toLocaleString("ar")} لـ12 شهر`}
+              ? t("rent.paidCash", language, { amount: result.amountPaidNow.toLocaleString("ar") })
+              : t("rent.paidInstallments", language, {
+                  amount: result.amountPaidNow.toLocaleString("ar"),
+                  monthly: result.monthlyAmount?.toLocaleString("ar") ?? "",
+                })}
           </p>
         </div>
 
         {result.surpriseEvents && result.surpriseEvents.length > 0 && (
           <div className="space-y-2">
             <p className="text-sm font-medium text-red-700 dark:text-red-300">
-              اكتشفت نواقص بعد التأكيد!
+              {t("rent.surprisesTitle", language)}
             </p>
             {result.surpriseEvents.map((event) => (
               <div
@@ -89,7 +90,7 @@ export default function RentStage({
               </div>
             ))}
             <p className="text-xs text-zinc-500">
-              إجمالي المفاجآت: {result.totalSurpriseCost.toLocaleString("ar")} (اتخصمت فوراً)
+              {t("rent.surprisesTotal", language, { amount: result.totalSurpriseCost.toLocaleString("ar") })}
             </p>
           </div>
         )}
@@ -122,7 +123,7 @@ export default function RentStage({
             className="flex flex-col gap-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800"
           >
             <span className="flex items-center justify-between">
-              <span className="text-sm font-medium">{o.label}</span>
+              <span className="text-sm font-medium">{t(`rent.option.${o.id}`, language)}</span>
               <input
                 id={`rent_${o.id}`}
                 type="radio"
@@ -135,8 +136,11 @@ export default function RentStage({
               />
             </span>
             <span className="text-xs text-zinc-500">
-              إيجار سنوي: {o.annualRent.toLocaleString("ar")} — مساحة: {SPACE_LABELS[o.spaceSize]} —{" "}
-              {o.hasFullServices ? "خدمات كاملة" : "خدمات ناقصة"}
+              {t("rent.annualRentLine", language, {
+                amount: o.annualRent.toLocaleString("ar"),
+                space: t(`rent.space.${o.spaceSize}`, language),
+                services: o.hasFullServices ? t("rent.fullServices", language) : t("rent.missingServices", language),
+              })}
             </span>
           </label>
         ))}
@@ -150,7 +154,7 @@ export default function RentStage({
             disabled={detailsViewed}
             className="text-xs text-zinc-500 underline disabled:no-underline disabled:opacity-50"
           >
-            {detailsViewed ? "شفت التفاصيل" : "تفاصيل"}
+            {detailsViewed ? t("common.detailsViewed", language) : t("common.details", language)}
           </button>
           {detailsViewed && (
             <div className="space-y-2">
@@ -170,11 +174,12 @@ export default function RentStage({
       {option && (
         <div className="space-y-2 rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
           <p className="text-sm">
-            السعر المعروض: <span className="font-medium">{displayedPrice.toLocaleString("ar")}</span>
+            {t("rent.displayedPriceLabel", language)}{" "}
+            <span className="font-medium">{displayedPrice.toLocaleString("ar")}</span>
           </p>
           {discountPercent > 0 && (
             <p className="text-xs text-zinc-500">
-              بعد خصم التفاوض ({discountPercent}%): {finalPrice.toLocaleString("ar")}
+              {t("rent.afterDiscount", language, { percent: discountPercent, amount: finalPrice.toLocaleString("ar") })}
             </p>
           )}
 
@@ -185,12 +190,12 @@ export default function RentStage({
               className="text-xs text-zinc-500 underline disabled:no-underline disabled:opacity-50"
             >
               {negotiatePending
-                ? "جاري التفاوض..."
+                ? t("rent.negotiating", language)
                 : negotiationUsedAlready
                   ? effectiveNegotiation?.success
-                    ? `تفاوضت بنجاح (${effectiveNegotiation.discountPercent}% خصم)`
-                    : "تفاوضت — ما نجح"
-                  : "تفاوض على السعر"}
+                    ? t("rent.negotiatedSuccess", language, { percent: effectiveNegotiation.discountPercent })
+                    : t("rent.negotiatedFailed", language)
+                  : t("rent.negotiateButton", language)}
             </button>
           </form>
         </div>
@@ -210,7 +215,7 @@ export default function RentStage({
                 checked={paymentMethod === "cash"}
                 onChange={() => setPaymentMethod("cash")}
               />
-              كاش كامل
+              {t("common.cashFull", language)}
             </label>
             <label className="flex items-center gap-1">
               <input
@@ -220,14 +225,17 @@ export default function RentStage({
                 checked={paymentMethod === "installments"}
                 onChange={() => setPaymentMethod("installments")}
               />
-              تقسيط
+              {t("common.installments", language)}
             </label>
           </div>
 
           <p className="text-xs text-zinc-500">
             {paymentMethod === "cash"
-              ? `تدفع الآن: ${downPayment.toLocaleString("ar")}`
-              : `دفعة أولى الآن: ${downPayment.toLocaleString("ar")} — قسط شهري تقريبي: ${monthlyPreview?.toLocaleString("ar")} لـ12 شهر`}
+              ? t("rent.payingNowCash", language, { amount: downPayment.toLocaleString("ar") })
+              : t("rent.payingNowInstallments", language, {
+                  amount: downPayment.toLocaleString("ar"),
+                  monthly: monthlyPreview?.toLocaleString("ar") ?? "",
+                })}
           </p>
 
           {confirmState?.error && (
@@ -241,7 +249,7 @@ export default function RentStage({
             disabled={confirmPending}
             className="w-full rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 disabled:opacity-50 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
           >
-            {confirmPending ? "جاري التأكيد..." : "تأكيد"}
+            {confirmPending ? t("common.confirming", language) : t("common.confirm", language)}
           </button>
         </form>
       )}

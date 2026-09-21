@@ -1,4 +1,4 @@
-import { INVESTOR_PRESSURE_MESSAGES } from "@/lib/financing";
+import { t, type Language } from "@/lib/i18n";
 
 /**
  * شريط الحالة الدائم — مهلة الأداء + currentCapital، ظاهر بكل شاشات
@@ -23,6 +23,7 @@ export default function FinancingCountdown({
   isOverdue,
   investorEquityPercent,
   pendingReceivablesTotal,
+  language,
 }: {
   remainingDays: number;
   totalDays: number;
@@ -30,8 +31,9 @@ export default function FinancingCountdown({
   isOverdue: boolean;
   investorEquityPercent: number;
   pendingReceivablesTotal?: number;
+  language: Language;
 }) {
-  const pressureMessage = INVESTOR_PRESSURE_MESSAGES[investorEquityPercent];
+  const pressureMessage = t(`financing.pressure.${investorEquityPercent}`, language);
 
   return (
     <div
@@ -44,19 +46,17 @@ export default function FinancingCountdown({
       <div className="flex items-center justify-center gap-3">
         <span className="flex items-center gap-1">
           <span aria-hidden="true">💰</span>
-          <span>{currentCapital.toLocaleString("ar")} درهم</span>
+          <span>{t("hud.capital", language, { amount: currentCapital.toLocaleString("ar") })}</span>
         </span>
         <span className="flex items-center gap-1">
           <span aria-hidden="true">⏳</span>
-          <span>
-            متبقي {remainingDays} يوم من {totalDays}
-          </span>
+          <span>{t("hud.remaining", language, { days: remainingDays, total: totalDays })}</span>
         </span>
       </div>
       {!!pendingReceivablesTotal && pendingReceivablesTotal > 0 && (
         <span className="flex items-center gap-1 text-xs">
           <span aria-hidden="true">💵</span>
-          <span>مبالغ معلّقة: {pendingReceivablesTotal.toLocaleString("ar")} درهم</span>
+          <span>{t("hud.pending", language, { amount: pendingReceivablesTotal.toLocaleString("ar") })}</span>
         </span>
       )}
       {isOverdue && pressureMessage && <p className="text-xs">{pressureMessage}</p>}

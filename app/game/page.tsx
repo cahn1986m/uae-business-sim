@@ -25,8 +25,10 @@ import {
   getSaleUnitCost,
   getLocationBonusResults,
   consumeAndClearResignationNotices,
+  getLanguage,
 } from "@/lib/db";
-import { getStageById, TOTAL_STAGES } from "@/lib/game-stages";
+import { TOTAL_STAGES } from "@/lib/game-stages";
+import { t } from "@/lib/i18n";
 import type { MarketResearchResults } from "@/lib/market-research";
 import type { LicensingResult } from "@/lib/licensing";
 import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
@@ -74,7 +76,13 @@ export default async function GamePage() {
   }
 
   const currentStage = await getCurrentStage(session.user.id);
-  const stage = getStageById(currentStage);
+
+  // اختيار اللغة (الجزء أ من ميزة اللغة) — مرة وحدة وقت التسجيل، قبل
+  // أي وصول لـ/dashboard أو /game. سيرفر-سايد، وليس فقط بالواجهة.
+  const language = await getLanguage(session.user.id);
+  if (!language) {
+    redirect("/language");
+  }
 
   // إشعارات استقالة مبكرة (كيميائي/محاسب، تصحيح الأرقام الحقيقية) —
   // تُقرا وتُصفَّر بنفس اللحظة (مرة وحدة بس)، تُعرض عند أول زيارة تالية
@@ -276,7 +284,7 @@ export default async function GamePage() {
       {resignationNotices.length > 0 && (
         <div className="w-full max-w-md space-y-2">
           {resignationNotices.map((notice, i) => (
-            <DramaticAlert key={i}>
+            <DramaticAlert key={i} language={language}>
               <p className="text-sm">{notice}</p>
             </DramaticAlert>
           ))}
@@ -285,6 +293,7 @@ export default async function GamePage() {
 
       {financingDecision && remainingDays !== null && (
         <FinancingCountdown
+          language={language}
           remainingDays={remainingDays}
           totalDays={financingDecision.financingDeadlineDays}
           currentCapital={currentCapitalForHud}
@@ -295,33 +304,34 @@ export default async function GamePage() {
       )}
 
       <p className="text-sm text-zinc-500">
-        مرحلة {currentStage} من {TOTAL_STAGES}
+        {t("game.stageOf", language, { current: currentStage, total: TOTAL_STAGES })}
       </p>
 
-      <h1 className="text-2xl font-semibold">{stage.title}</h1>
-      <p className="max-w-md text-sm text-zinc-500">{stage.description}</p>
+      <h1 className="text-2xl font-semibold">{t(`stage.${currentStage}.title`, language)}</h1>
+      <p className="max-w-md text-sm text-zinc-500">{t(`stage.${currentStage}.description`, language)}</p>
 
       {isMarketResearchStage && marketResearchCredit !== null && (
-        <MarketResearchStage credit={marketResearchCredit} results={marketResearchResults} />
+        <MarketResearchStage credit={marketResearchCredit} results={marketResearchResults} language={language} />
       )}
 
-      {isFinancingStage && <FinancingStage decision={financingDecision} />}
+      {isFinancingStage && <FinancingStage decision={financingDecision} language={language} />}
 
-      {isLicensingStage && <LicensingStage result={licensingResult} />}
+      {isLicensingStage && <LicensingStage result={licensingResult} language={language} />}
 
-      {isRentStage && <RentStage negotiation={rentNegotiation} result={rentResult} />}
+      {isRentStage && <RentStage negotiation={rentNegotiation} result={rentResult} language={language} />}
 
       {isEquipmentStage && equipmentSpaceSize !== null && (
-        <EquipmentStage spaceSize={equipmentSpaceSize} result={equipmentResult} />
+        <EquipmentStage spaceSize={equipmentSpaceSize} result={equipmentResult} language={language} />
       )}
 
-      {isHiringStage && <HiringStage decision={hiringDecision} />}
+      {isHiringStage && <HiringStage decision={hiringDecision} language={language} />}
 
       {isProductionStage && (
         <ProductionStage
           capacity={productionCapacity}
           rawMaterialInventory={rawMaterialInventory}
           cycles={productionCycles}
+          language={language}
         />
       )}
 
@@ -333,6 +343,7 @@ export default async function GamePage() {
           locationBonusResults={locationBonusResults}
           salesEmployeeHired={salesEmployeeHired}
           adCampaigns={adCampaigns}
+          language={language}
         />
       )}
 
@@ -354,12 +365,13 @@ export default async function GamePage() {
           saleUnitCost={saleUnitCost}
           salesEmployeeHired={salesEmployeeHired}
           adCampaigns={adCampaigns}
+          language={language}
         />
       )}
 
       {isLastStage ? (
         <p className="rounded-md bg-zinc-100 px-4 py-2 text-sm font-medium dark:bg-zinc-900">
-          انتهت الجولة 🎉
+          {t("game.roundEnded", language)}
         </p>
       ) : (
         canAdvance && (
@@ -368,7 +380,7 @@ export default async function GamePage() {
               type="submit"
               className="rounded-md bg-zinc-900 px-5 py-2.5 text-sm font-medium text-white transition-colors hover:bg-zinc-700 dark:bg-white dark:text-zinc-900 dark:hover:bg-zinc-200"
             >
-              التالي
+              {t("game.next", language)}
             </button>
           </form>
         )
@@ -379,7 +391,7 @@ export default async function GamePage() {
           type="submit"
           className="text-xs text-zinc-400 underline hover:text-zinc-600 dark:hover:text-zinc-300"
         >
-          إعادة البدء (للتجربة أثناء البناء فقط)
+          {t("game.restart", language)}
         </button>
       </form>
     </div>

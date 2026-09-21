@@ -1,5 +1,6 @@
 import "server-only";
 import { neon } from "@neondatabase/serverless";
+import type { Language } from "@/lib/i18n";
 import { MARKET_RESEARCH_TOTAL_CREDIT, type MarketResearchResults } from "@/lib/market-research";
 import type { FinancingDecision } from "@/lib/financing";
 import type { LicensingPath, LicensingResult } from "@/lib/licensing";
@@ -94,6 +95,30 @@ export async function setCurrentStage(userId: string, stage: number): Promise<vo
   await sql`
     UPDATE game_state
     SET data = jsonb_set(data, '{currentStage}', to_jsonb(${stage}::int)),
+        updated_at = now()
+    WHERE user_id = ${userId}
+  `;
+}
+
+/**
+ * اختيار اللغة (الجزء أ من ميزة اللغة) — قرار حساب دائم، مرة وحدة وقت
+ * التسجيل، منفصل تماماً عن تقدّم الجولة (لا يُصفَّر مع "إعادة البدء").
+ * null لو اللاعب لسا ما اختار — بيحدّد لازم يتوجّه لصفحة الاختيار.
+ */
+export async function getLanguage(userId: string): Promise<Language | null> {
+  const rows = await sql`
+    SELECT data->>'language' AS language
+    FROM game_state
+    WHERE user_id = ${userId}
+  `;
+  const value = rows[0]?.language;
+  return value === "ar" || value === "en" ? value : null;
+}
+
+export async function setLanguage(userId: string, language: Language): Promise<void> {
+  await sql`
+    UPDATE game_state
+    SET data = jsonb_set(data, '{language}', ${JSON.stringify(language)}::jsonb),
         updated_at = now()
     WHERE user_id = ${userId}
   `;
