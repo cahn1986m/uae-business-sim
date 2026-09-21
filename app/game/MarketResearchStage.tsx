@@ -2,9 +2,21 @@
 
 import { useActionState, useState } from "react";
 import { confirmMarketResearchPurchase, type MarketResearchFormState } from "./actions";
-import { MARKET_RESEARCH_SERVICES, type MarketResearchResults } from "@/lib/market-research";
+import { MARKET_RESEARCH_SERVICES, type MarketResearchResults, type ChannelOutcome } from "@/lib/market-research";
 import DramaticAlert from "./DramaticAlert";
 import { t, type Language } from "@/lib/i18n";
+
+/**
+ * نص نتيجة قناة (دراسة جدوى/استشاريين) — الشكل الحالي `code` يُترجم
+ * عبر t()؛ توافق رجعي بسيط مع بيانات قديمة (نص عربي جاهز مخزَّن من
+ * قبل الجزء ب) — تُعرض كما هي بدون أي محاولة ترجمة.
+ */
+function getOutcomeText(outcome: ChannelOutcome | { success: boolean; message?: string }, language: Language): string {
+  if ("code" in outcome && outcome.code) {
+    return t(outcome.code, language);
+  }
+  return "message" in outcome && outcome.message ? outcome.message : "";
+}
 
 /**
  * واجهة مرحلة "دراسة السوق" — قبل التأكيد: قائمة 4 خدمات بسعر ثابت
@@ -36,7 +48,7 @@ export default function MarketResearchStage({
         {results.outcomes.feasibility && (
           <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
             <p className="font-medium">{t("marketResearch.service.feasibility", language)}</p>
-            <p className="mt-1 text-sm">{results.outcomes.feasibility.message}</p>
+            <p className="mt-1 text-sm">{getOutcomeText(results.outcomes.feasibility, language)}</p>
           </div>
         )}
 
@@ -44,12 +56,12 @@ export default function MarketResearchStage({
           (results.outcomes.consultants.success ? (
             <div className="rounded-md border border-zinc-200 p-4 text-right dark:border-zinc-800">
               <p className="font-medium">{t("marketResearch.service.consultants", language)}</p>
-              <p className="mt-1 text-sm">{results.outcomes.consultants.message}</p>
+              <p className="mt-1 text-sm">{getOutcomeText(results.outcomes.consultants, language)}</p>
             </div>
           ) : (
             <DramaticAlert language={language}>
               <p className="font-medium">{t("marketResearch.service.consultants", language)}</p>
-              <p className="mt-1 text-sm">{results.outcomes.consultants.message}</p>
+              <p className="mt-1 text-sm">{getOutcomeText(results.outcomes.consultants, language)}</p>
             </DramaticAlert>
           ))}
       </div>

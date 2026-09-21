@@ -41,25 +41,36 @@ export const MARKET_RESEARCH_SERVICES: {
 /** الخدمتين يلي بترجعوا نتيجة فورية بعد الشراء (النتائج عشوائية). */
 type RolledServiceKey = "feasibility" | "consultants";
 
+/**
+ * أكواد كل نتيجة ممكنة حالياً (الجزء ب من ميزة اللغة) — بدل نص عربي
+ * جاهز، نخزّن الكود بس، ونترجمه وقت العرض عبر t() (lib/i18n.ts).
+ * نفس الاحتمالات الموجودة أصلاً، بدون أي تغيير على المنطق.
+ */
+export type MarketResearchOutcomeCode =
+  | "feasibility_success"
+  | "feasibility_generic"
+  | "consultant_useful"
+  | "consultant_scam";
+
 const OUTCOME_CONFIG: Record<
   RolledServiceKey,
-  { successRate: number; successMessage: string; failureMessage: string }
+  { successRate: number; successCode: MarketResearchOutcomeCode; failureCode: MarketResearchOutcomeCode }
 > = {
   feasibility: {
     successRate: 0.9,
-    successMessage: "دراسة الجدوى رجعت معلومات مفصّلة ومشجّعة عن السوق.",
-    failureMessage: "دراسة الجدوى رجعت بس نتيجة عامة، بدون تفاصيل تُذكر.",
+    successCode: "feasibility_success",
+    failureCode: "feasibility_generic",
   },
   consultants: {
     successRate: 0.4,
-    successMessage: "لقيت استشاري فعلاً عطاك معلومة مفيدة.",
-    failureMessage: "لم يرد عليك أحد بعد الدفع.",
+    successCode: "consultant_useful",
+    failureCode: "consultant_scam",
   },
 };
 
 export type ChannelOutcome = {
   success: boolean;
-  message: string;
+  code: MarketResearchOutcomeCode;
 };
 
 /** فنادق الشبكة — تُخزّن كعلم فقط، بدون نتيجة ظاهرة، لمرحلة "البيع" لاحقاً. */
@@ -82,6 +93,6 @@ export function rollServiceOutcome(key: RolledServiceKey): ChannelOutcome {
   const success = Math.random() < config.successRate;
   return {
     success,
-    message: success ? config.successMessage : config.failureMessage,
+    code: success ? config.successCode : config.failureCode,
   };
 }

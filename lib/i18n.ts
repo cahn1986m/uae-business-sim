@@ -122,6 +122,24 @@ const dict: Record<string, Entry> = {
     ar: "فندق نجمتين (اختلاط بالعاملين)",
     en: "2-star hotel (mingling with staff)",
   },
+  // نتائج قنوات دراسة السوق العشوائية (الجزء ب من ميزة اللغة) — أكواد
+  // بدل نص عربي جاهز، مخزَّنة بـmarketResearchResults.outcomes.
+  feasibility_success: {
+    ar: "دراسة الجدوى رجعت معلومات مفصّلة ومشجّعة عن السوق.",
+    en: "The feasibility study came back with detailed, encouraging market information.",
+  },
+  feasibility_generic: {
+    ar: "دراسة الجدوى رجعت بس نتيجة عامة، بدون تفاصيل تُذكر.",
+    en: "The feasibility study only came back with a generic result, no real details.",
+  },
+  consultant_useful: {
+    ar: "لقيت استشاري فعلاً عطاك معلومة مفيدة.",
+    en: "You actually found a consultant who gave you useful information.",
+  },
+  consultant_scam: {
+    ar: "لم يرد عليك أحد بعد الدفع.",
+    en: "No one got back to you after you paid.",
+  },
 
   // ---------------------------------------------------------------------
   // financing

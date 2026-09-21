@@ -126,7 +126,10 @@ export default function ResultStage({
             const service = MARKET_RESEARCH_SERVICES.find((s) => s.key === key);
             let resultText: string | null = null;
             if (key === "feasibility" || key === "consultants") {
-              resultText = marketResearchResults.outcomes[key]?.message ?? null;
+              const outcome = marketResearchResults.outcomes[key] as
+                | { success: boolean; code?: string; message?: string }
+                | undefined;
+              resultText = outcome?.code ? t(outcome.code, language) : (outcome?.message ?? null);
             } else if (key === "hotel5star") {
               resultText = locationBonusResults.find((r) => r.type === "hotel-5star")?.message ?? t("result.notUsedYet", language);
             } else if (key === "hotel2star") {
