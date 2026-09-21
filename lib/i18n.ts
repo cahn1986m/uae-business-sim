@@ -297,6 +297,22 @@ const dict: Record<string, Entry> = {
   "hiring.choice.none": { ar: "لا توظف", en: "Don't hire" },
   "hiring.experience.junior": { ar: "جونيور", en: "Junior" },
   "hiring.experience.senior": { ar: "سينيور", en: "Senior" },
+  "hiring.bio.chemist.junior": {
+    ar: "متخرج حديثاً من كلية الكيمياء، اشتغل سنة بمختبر تجميل صغير — حماسي ومتابع، بس لسا بيتعلم دقة القياسات.",
+    en: "A recent chemistry graduate who spent a year at a small cosmetics lab — enthusiastic and attentive, but still mastering precise measurements.",
+  },
+  "hiring.bio.chemist.senior": {
+    ar: "خبرة 12 سنة بتصنيع العطور والمستحضرات، اشتغل سابقاً بمصنع إقليمي معروف — دقيق جداً وبيعرف يعالج مشاكل التركيبة بسرعة.",
+    en: "12 years of experience manufacturing perfumes and cosmetics, previously at a well-known regional factory — highly precise and quick to solve formulation problems.",
+  },
+  "hiring.bio.accountant.junior": {
+    ar: "حديث التخرج بمحاسبة، شغل شهرين متدرب بمكتب محاسبة — منظم بس بيحتاج مراجعة على فواتيره لأول فترة.",
+    en: "A recent accounting graduate who interned for two months at an accounting firm — organized, but their invoices will need review at first.",
+  },
+  "hiring.bio.accountant.senior": {
+    ar: "خبرة 10 سنين بمحاسبة شركات تصنيع صغيرة ومتوسطة، متعوّد على التحصيل والفواتير المعقدة — نادراً ما يفوته شي.",
+    en: "10 years of experience in accounting for small and mid-sized manufacturing companies, well-versed in collections and complex invoicing — rarely misses a thing.",
+  },
 
   // ---------------------------------------------------------------------
   // production

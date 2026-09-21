@@ -105,7 +105,7 @@ export default function HiringStage({
                 >
                   {isDetailsShown ? t("common.detailsViewed", language) : t("common.details", language)}
                 </button>
-                {isDetailsShown && <p className="text-xs text-zinc-500">{candidate.bio}</p>}
+                {isDetailsShown && <p className="text-xs text-zinc-500">{t(candidate.bio, language)}</p>}
               </label>
             );
           })}

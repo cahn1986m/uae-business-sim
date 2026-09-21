@@ -12,6 +12,12 @@ export type HiringCandidate = {
   choice: HiringChoice;
   label: string;
   monthlySalary: number;
+  /**
+   * للمرشحين الفعليين (junior/senior): مفتاح ترجمة بـlib/i18n.ts
+   * (`t(candidate.bio, language)` بـHiringStage.tsx). لخيار "none":
+   * نص عربي حرفي — بيمر عبر t() بدون أي تغيير (مفتاح غير موجود
+   * بالقاموس = يرجع كما هو)، فيبقى عربي دايماً بانتظار جزء لاحق.
+   */
   bio: string;
 };
 
@@ -33,13 +39,13 @@ export const HIRING_ROLES: {
         choice: "junior",
         label: "مرشح جونيور",
         monthlySalary: 2500,
-        bio: "متخرج حديثاً من كلية الكيمياء، اشتغل سنة بمختبر تجميل صغير — حماسي ومتابع، بس لسا بيتعلم دقة القياسات.",
+        bio: "hiring.bio.chemist.junior",
       },
       {
         choice: "senior",
         label: "مرشح سينيور",
         monthlySalary: 10000,
-        bio: "خبرة 12 سنة بتصنيع العطور والمستحضرات، اشتغل سابقاً بمصنع إقليمي معروف — دقيق جداً وبيعرف يعالج مشاكل التركيبة بسرعة.",
+        bio: "hiring.bio.chemist.senior",
       },
       {
         choice: "none",
@@ -57,13 +63,13 @@ export const HIRING_ROLES: {
         choice: "junior",
         label: "مرشح جونيور",
         monthlySalary: 2500,
-        bio: "حديث التخرج بمحاسبة، شغل شهرين متدرب بمكتب محاسبة — منظم بس بيحتاج مراجعة على فواتيره لأول فترة.",
+        bio: "hiring.bio.accountant.junior",
       },
       {
         choice: "senior",
         label: "مرشح سينيور",
         monthlySalary: 10000,
-        bio: "خبرة 10 سنين بمحاسبة شركات تصنيع صغيرة ومتوسطة، متعوّد على التحصيل والفواتير المعقدة — نادراً ما يفوته شي.",
+        bio: "hiring.bio.accountant.senior",
       },
       {
         choice: "none",
