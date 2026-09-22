@@ -104,6 +104,7 @@ import {
   type SupplierChoice,
   type ProcessingMode,
   type ProductLineType,
+  type QcReportCode,
 } from "@/lib/production";
 import {
   computeUnitCost,
@@ -798,7 +799,8 @@ export type ProductionFormState =
       largeUnits: number;
       qcPurchased: boolean;
       chemistErrorOccurred: boolean;
-      qcReport: string | null;
+      qcReportCode: QcReportCode | null;
+      qcWastePercent: number | null;
     }
   | null;
 
@@ -982,10 +984,12 @@ export async function confirmProductionPurchase(
   await consumeGameDays(userId, daysConsumedThisCycle);
   revalidatePath("/game");
 
-  const qcReport = qcPurchased
-    ? chemistErrorOccurred
-      ? `تقرير الجودة: اكتُشفت مشكلة — تلف ${Math.round(CHEMIST_ERROR_CONFIG[chemistTier].wastePercent * 100)}% من الدفعة بسبب خطأ تصنيع`
-      : "تقرير الجودة: لا توجد مشكلة"
+  // كود بدل نص عربي جاهز (ميزة اللغة، الجزء ب) — يُترجم وقت العرض عبر
+  // t() بـProductionStage.tsx؛ نفس النسبة المحسوبة بالضبط (بدون أي
+  // تغيير على المنطق)، تُمرَّر كرقم منفصل لاستبدال {percent}.
+  const qcReportCode: QcReportCode | null = qcPurchased ? (chemistErrorOccurred ? "qc_issue_found" : "qc_no_issue") : null;
+  const qcWastePercent = qcPurchased && chemistErrorOccurred
+    ? Math.round(CHEMIST_ERROR_CONFIG[chemistTier].wastePercent * 100)
     : null;
 
   return {
@@ -996,7 +1000,8 @@ export async function confirmProductionPurchase(
     largeUnits,
     qcPurchased,
     chemistErrorOccurred,
-    qcReport,
+    qcReportCode,
+    qcWastePercent,
   };
 }
 

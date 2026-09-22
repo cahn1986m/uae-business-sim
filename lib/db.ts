@@ -6,7 +6,12 @@ import type { FinancingDecision } from "@/lib/financing";
 import type { LicensingPath, LicensingResult } from "@/lib/licensing";
 import type { NegotiationResult, RentResult, RentSpaceSize } from "@/lib/rent";
 import type { EquipmentResult, EquipmentType } from "@/lib/equipment";
-import { VISA_COVERAGE_DAYS, EARLY_RESIGNATION_CHANCE, type HiringDecision } from "@/lib/hiring";
+import {
+  VISA_COVERAGE_DAYS,
+  EARLY_RESIGNATION_CHANCE,
+  type HiringDecision,
+  type ResignationCode,
+} from "@/lib/hiring";
 import type { ProductionCycle } from "@/lib/production";
 import {
   computeLocationBonus,
@@ -275,9 +280,10 @@ export async function getDaysConsumed(userId: string): Promise<number> {
  * VISA_COVERAGE_DAYS يوم من visaStartedAt، قيمة daysConsumed وقت
  * التوظيف نفسها — مو تاريخ حقيقي)، فحص احتمال EARLY_RESIGNATION_CHANCE
  * لكل استدعاء (مو لكل يوم). عند الاستقالة: الدور يصير false/الخبرة
- * null، عنصر الراتب المطابق يُشال من monthlyObligations، وإشعار نصي
- * يُضاف لـresignationNotices (يُقرا ويُصفَّر مرة وحدة بـ
- * consumeAndClearResignationNotices) — بدون أي استرداد لتكلفة الإقامة.
+ * null، عنصر الراتب المطابق يُشال من monthlyObligations، وكود إشعار
+ * (ResignationCode — ميزة اللغة، الجزء ب) يُضاف لـresignationNotices
+ * (يُقرا ويُصفَّر مرة وحدة بـconsumeAndClearResignationNotices) —
+ * بدون أي استرداد لتكلفة الإقامة.
  * هاي نفس الدالة المشتركة لكل الاستدعاءات (إيجار/معدات/إنتاج ولاحقاً)
  * — ما في نسخة منفصلة لأي من الفحصين.
  */
@@ -321,7 +327,7 @@ export async function consumeGameDays(userId: string, days: number): Promise<num
     hiredField: string,
     experienceField: string,
     obligationType: string,
-    label: string
+    code: ResignationCode
   ) => {
     if (hiredRaw !== "true") return;
     const started = typeof visaStartedAt === "number" ? visaStartedAt : 0;
@@ -330,7 +336,11 @@ export async function consumeGameDays(userId: string, days: number): Promise<num
       patch[hiredField] = false;
       patch[experienceField] = null;
       monthlyObligations = monthlyObligations.filter((o) => o.type !== obligationType);
-      resignationNotices.push(`استقال ${label} بشكل مفاجئ — خسرت تكلفة إقامته.`);
+      // كود بدل نص عربي جاهز (ميزة اللغة، الجزء ب) — يُترجم وقت العرض
+      // عبر t() بـpage.tsx؛ توافق رجعي مع إشعارات قديمة (نص عربي حرفي)
+      // عبر آلية fallback الموجودة أصلاً بـt() (مفتاح غير موجود = يرجع
+      // كما هو).
+      resignationNotices.push(code);
     }
   };
 
@@ -340,7 +350,7 @@ export async function consumeGameDays(userId: string, days: number): Promise<num
     "chemistHired",
     "chemistExperience",
     "salary-chemist",
-    "الكيميائي"
+    "resignation_chemist"
   );
   checkResignation(
     row?.accountant_hired,
@@ -348,7 +358,7 @@ export async function consumeGameDays(userId: string, days: number): Promise<num
     "accountantHired",
     "accountantExperience",
     "salary-accountant",
-    "المحاسب"
+    "resignation_accountant"
   );
 
   patch.daysConsumed = newDaysConsumed;

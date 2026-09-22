@@ -343,6 +343,17 @@ const dict: Record<string, Entry> = {
     en: "10 years of experience in accounting for small and mid-sized manufacturing companies, well-versed in collections and complex invoicing — rarely misses a thing.",
   },
 
+  // إشعارات الاستقالة المبكرة (ميزة اللغة، الجزء ب) — أكواد مخزَّنة
+  // بـresignationNotices بدل نص عربي جاهز.
+  resignation_chemist: {
+    ar: "استقال الكيميائي بشكل مفاجئ — خسرت تكلفة إقامته.",
+    en: "The chemist resigned unexpectedly — you lost their visa cost.",
+  },
+  resignation_accountant: {
+    ar: "استقال المحاسب بشكل مفاجئ — خسرت تكلفة إقامته.",
+    en: "The accountant resigned unexpectedly — you lost their visa cost.",
+  },
+
   // ---------------------------------------------------------------------
   // production
   // ---------------------------------------------------------------------
@@ -393,6 +404,13 @@ const dict: Record<string, Entry> = {
   "production.percentSum": { ar: "المجموع الحالي: {sum}%", en: "Current total: {sum}%" },
   "production.percentInvalidSuffix": { ar: " — لازم يكون 100 بالضبط", en: " — must be exactly 100" },
   "production.qcLabel": { ar: "فحص جودة (QC) — {cost} درهم", en: "Quality check (QC) — AED {cost}" },
+  // تقرير QC (ميزة اللغة، الجزء ب) — كود بدل نص عربي جاهز، النسبة عبر
+  // {percent} بنفس الصيغة الأصلية.
+  qc_no_issue: { ar: "تقرير الجودة: لا توجد مشكلة", en: "Quality report: no issue found" },
+  qc_issue_found: {
+    ar: "تقرير الجودة: اكتُشفت مشكلة — تلف {percent}% من الدفعة بسبب خطأ تصنيع",
+    en: "Quality report: an issue was found — {percent}% of the batch was damaged due to a manufacturing error",
+  },
   "production.submitButton": { ar: "شراء وإنتاج", en: "Purchase & produce" },
   "production.submitting": { ar: "جاري الشراء...", en: "Purchasing..." },
   "production.supplier.cheap": { ar: "مورّد رخيص", en: "Cheap supplier" },

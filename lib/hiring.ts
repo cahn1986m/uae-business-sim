@@ -110,3 +110,11 @@ export const VISA_COVERAGE_DAYS = 730;
  * افتراض معقول، قابل للتعديل لاحقاً لو تبيّن رقم أنسب بالتجربة.
  */
 export const EARLY_RESIGNATION_CHANCE = 0.03;
+
+/**
+ * كود إشعار الاستقالة المبكرة (ميزة اللغة، الجزء ب) — بدل نص عربي
+ * جاهز يُخزَّن بـresignationNotices، نخزّن الكود بس ونترجمه وقت العرض
+ * عبر t() (lib/i18n.ts). نفس الاحتمال (EARLY_RESIGNATION_CHANCE) بدون
+ * أي تغيير — تحويل آلية التخزين فقط.
+ */
+export type ResignationCode = "resignation_chemist" | "resignation_accountant";

@@ -80,16 +80,23 @@ function ProductionCycleForm({
               large: state.largeUnits.toLocaleString("ar"),
             })}
           </p>
-          {state.qcReport &&
-            (state.chemistErrorOccurred ? (
-              <div className="mt-1">
-                <DramaticAlert language={language}>
-                  <p className="text-xs">{state.qcReport}</p>
-                </DramaticAlert>
-              </div>
-            ) : (
-              <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">{state.qcReport}</p>
-            ))}
+          {state.qcReportCode &&
+            (() => {
+              const qcText = t(
+                state.qcReportCode,
+                language,
+                state.qcWastePercent !== null ? { percent: state.qcWastePercent } : undefined
+              );
+              return state.chemistErrorOccurred ? (
+                <div className="mt-1">
+                  <DramaticAlert language={language}>
+                    <p className="text-xs">{qcText}</p>
+                  </DramaticAlert>
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-emerald-600 dark:text-emerald-400">{qcText}</p>
+              );
+            })()}
           <p className="mt-1 text-xs text-zinc-500">
             {t("production.cycleInventoryLine", language, {
               number: cycles.length,

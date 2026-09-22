@@ -285,7 +285,10 @@ export default async function GamePage() {
         <div className="w-full max-w-md space-y-2">
           {resignationNotices.map((notice, i) => (
             <DramaticAlert key={i} language={language}>
-              <p className="text-sm">{notice}</p>
+              {/* notice كود (ميزة اللغة، الجزء ب) يُترجم عبر t()؛ توافق
+                  رجعي مع إشعارات قديمة (نص عربي حرفي) عبر fallback t()
+                  الموجود أصلاً — مفتاح غير موجود بالقاموس يرجع كما هو. */}
+              <p className="text-sm">{t(notice, language)}</p>
             </DramaticAlert>
           ))}
         </div>
