@@ -108,10 +108,22 @@ export function isBoutiqueTraderUnlocked(cycles: ProductionCycle[]): boolean {
 
 export type LocationBonusEventType = "prime-location" | "hotel-5star" | "hotel-2star";
 
+/**
+ * كود كل نتيجة أثر موقع ممكنة (ميزة اللغة، الجزء ب — الأخير) — بدل
+ * نص عربي جاهز نخزّن الكود بس، ونترجمه وقت العرض عبر t()
+ * (lib/i18n.ts). نفس الاحتمالات والأرقام بدون أي تغيير.
+ */
+export type LocationBonusCode =
+  | "prime_location_success"
+  | "prime_location_missed"
+  | "hotel_5star_success"
+  | "hotel_2star_success"
+  | "hotel_2star_scam";
+
 export type LocationBonusResult = {
   type: LocationBonusEventType;
   success: boolean;
-  message: string;
+  code: LocationBonusCode;
 };
 
 export const PRIME_LOCATION_BONUS_SMALL_UNITS = 40;
@@ -147,13 +159,13 @@ export function computeLocationBonus(
       results.push({
         type: "prime-location",
         success: true,
-        message: "موقعك المميز جابلك زبائن إضافيين لأنك طوّرت منتجاتك.",
+        code: "prime_location_success",
       });
     } else {
       results.push({
         type: "prime-location",
         success: false,
-        message: "فاتتك فرصة موقعك المميز — ما طوّرت منتجاتك لتناسب الطلبات.",
+        code: "prime_location_missed",
       });
     }
   }
@@ -163,7 +175,7 @@ export function computeLocationBonus(
     results.push({
       type: "hotel-5star",
       success: true,
-      message: "صديقك من الفندق جابلك صفقة مضمونة.",
+      code: "hotel_5star_success",
     });
   }
 
@@ -171,13 +183,13 @@ export function computeLocationBonus(
     const success = Math.random() < HOTEL_2STAR_SUCCESS_RATE;
     if (success) {
       bonusLargeDelta += HOTEL_2STAR_BONUS_LARGE_UNITS;
-      results.push({ type: "hotel-2star", success: true, message: "لقيت زبون رخيص من هناك." });
+      results.push({ type: "hotel-2star", success: true, code: "hotel_2star_success" });
     } else {
       capitalDelta -= HOTEL_2STAR_FAILURE_COST;
       results.push({
         type: "hotel-2star",
         success: false,
-        message: "الشخص يلي قابلته طلع نصاب، خسرت دفعة مقدمة.",
+        code: "hotel_2star_scam",
       });
     }
   }

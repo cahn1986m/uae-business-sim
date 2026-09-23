@@ -28,6 +28,16 @@ const AD_TARGETS: AdTarget[] = ["premium", "wholesale", "discount"];
 const WHOLESALE_PAYMENT_METHODS: WholesalePaymentMethod[] = ["cash", "credit-30", "credit-60", "credit-90"];
 
 /**
+ * نص نتيجة أثر الموقع — الشكل الحالي `code` يُترجم عبر t()؛ توافق
+ * رجعي مع بيانات قديمة (نص عربي جاهز `message` بدل كود) — تُعرض كما
+ * هي بدون أي محاولة ترجمة.
+ */
+function getLocationBonusText(result: { code?: string; message?: string }, language: Language): string {
+  if (result.code) return t(result.code, language);
+  return result.message ?? "";
+}
+
+/**
  * واجهة مرحلة "البيع" — الجزء أ (بيع يدوي متكرر) + الجزء ب (مصادر
  * الزبائن: أثر الموقع التلقائي، موظف مبيعات، إعلانات). "تجار صغار"
  * تظهر مقفولة بصرياً (radio معطّل) لو ما تحقق شرط التنويع — الحماية
@@ -58,14 +68,14 @@ export default function SalesStage({
           {locationBonusResults.map((r, i) =>
             r.type === "hotel-2star" && !r.success ? (
               <DramaticAlert key={i} language={language}>
-                <p className="text-xs">{r.message}</p>
+                <p className="text-xs">{getLocationBonusText(r, language)}</p>
               </DramaticAlert>
             ) : (
               <p
                 key={i}
                 className={`text-xs ${r.success ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}
               >
-                {r.message}
+                {getLocationBonusText(r, language)}
               </p>
             )
           )}

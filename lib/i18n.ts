@@ -437,6 +437,28 @@ const dict: Record<string, Entry> = {
     ar: "أثر الموقع عند دخولك المرحلة",
     en: "Location effect upon entering this stage",
   },
+  // نتائج أثر الموقع (ميزة اللغة، الجزء ب — الأخير) — أكواد مخزَّنة
+  // بـlocationBonusResults[].code بدل نص عربي جاهز.
+  prime_location_success: {
+    ar: "موقعك المميز جابلك زبائن إضافيين لأنك طوّرت منتجاتك.",
+    en: "Your prime location brought you extra customers because you diversified your products.",
+  },
+  prime_location_missed: {
+    ar: "فاتتك فرصة موقعك المميز — ما طوّرت منتجاتك لتناسب الطلبات.",
+    en: "You missed the opportunity of your prime location — you didn't diversify your products to match demand.",
+  },
+  hotel_5star_success: {
+    ar: "صديقك من الفندق جابلك صفقة مضمونة.",
+    en: "Your friend from the hotel brought you a guaranteed deal.",
+  },
+  hotel_2star_success: {
+    ar: "لقيت زبون رخيص من هناك.",
+    en: "You found a bargain customer from there.",
+  },
+  hotel_2star_scam: {
+    ar: "الشخص يلي قابلته طلع نصاب، خسرت دفعة مقدمة.",
+    en: "The person you met turned out to be a scammer — you lost an advance payment.",
+  },
   "sales.employeeHiredLine": {
     ar: "موظف مبيعات موظّف — عمولته {percent}% على كل عملية بيع",
     en: "Sales employee hired — {percent}% commission on every sale",

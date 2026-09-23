@@ -27,12 +27,22 @@ import {
 import { t, type Language } from "@/lib/i18n";
 
 /**
+ * نص نتيجة أثر الموقع — الشكل الحالي `code` يُترجم عبر t()؛ توافق
+ * رجعي مع بيانات قديمة (نص عربي جاهز `message` بدل كود) — تُعرض كما
+ * هي بدون أي محاولة ترجمة. (نفس منطق getLocationBonusText بـSalesStage.tsx.)
+ */
+function getLocationBonusText(result: { code?: string; message?: string }, language: Language): string {
+  if (result.code) return t(result.code, language);
+  return result.message ?? "";
+}
+
+/**
  * مرحلة "النتيجة" (المرحلة 10، الأخيرة) — تقرير قراءة بحت، بدون أي
  * منطق لعب جديد. كل رقم/جملة هون مبني من حقول فعلية مخزَّنة لهالحساب
  * تحديداً (مُجمَّعة عبر `lib/results.ts`)، مافي أي نص عام ثابت. النصوص
- * الديناميكية المخزَّنة (رسائل دراسة السوق/الترخيص/الموقع) تبقى عربية
- * دايماً — الترجمة هون للعناوين والتسميات الثابتة بس (الجزء أ من ميزة
- * اللغة).
+ * الديناميكية المخزَّنة (نتائج دراسة السوق/مفاجآت الترخيص/أثر الموقع)
+ * صارت كلها مترجمة عبر t() بأكواد (ميزة اللغة، الجزء ب مكتمل) — مع
+ * توافق رجعي لبيانات قديمة (نص عربي مباشر بدون كود) تُعرض كما هي.
  */
 export default function ResultStage({
   currentCapital,
@@ -131,9 +141,11 @@ export default function ResultStage({
                 | undefined;
               resultText = outcome?.code ? t(outcome.code, language) : (outcome?.message ?? null);
             } else if (key === "hotel5star") {
-              resultText = locationBonusResults.find((r) => r.type === "hotel-5star")?.message ?? t("result.notUsedYet", language);
+              const r = locationBonusResults.find((res) => res.type === "hotel-5star");
+              resultText = r ? getLocationBonusText(r, language) : t("result.notUsedYet", language);
             } else if (key === "hotel2star") {
-              resultText = locationBonusResults.find((r) => r.type === "hotel-2star")?.message ?? t("result.notUsedYet", language);
+              const r = locationBonusResults.find((res) => res.type === "hotel-2star");
+              resultText = r ? getLocationBonusText(r, language) : t("result.notUsedYet", language);
             }
             return (
               <p key={key} className="text-xs text-zinc-600 dark:text-zinc-400">
