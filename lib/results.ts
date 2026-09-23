@@ -23,6 +23,47 @@ export function getVerdict(finalNetWorth: number, startingCapital: number): "ن�
   return finalNetWorth > startingCapital ? "نجحت" : "خسرت";
 }
 
+export type FinancialProjection = {
+  daysElapsed: number;
+  netChangeSoFar: number;
+  dailyRate: number;
+  daysRemaining: number;
+  projectedFinalNetWorth: number;
+  onTrackToSucceed: boolean;
+};
+
+/**
+ * توقع خطي مبسّط (تصحيح مهلة السداد السنوية) — يُستخدم فقط لما
+ * المهلة لسا ما انتهت (daysConsumed < financingDeadlineDays)، لعرض
+ * "توقع" بمرحلة 10 بدل حكم نهائي قاطع. افتراض متعمد إن المعدل
+ * الحالي (منذ بداية التمويل، daysConsumed) بيستمر بلا تغيّر حتى نهاية
+ * المهلة — تبسيط، مو نموذج تنبؤ دقيق. بترجع null لو daysElapsed=0
+ * (تفادي القسمة على صفر — لا بيانات كافية بعد).
+ */
+export function computeFinancialProjection(
+  finalNetWorth: number,
+  startingCapital: number,
+  daysConsumed: number,
+  financingDeadlineDays: number
+): FinancialProjection | null {
+  const daysElapsed = daysConsumed;
+  if (daysElapsed === 0) return null;
+
+  const netChangeSoFar = finalNetWorth - startingCapital;
+  const dailyRate = netChangeSoFar / daysElapsed;
+  const daysRemaining = financingDeadlineDays - daysConsumed;
+  const projectedFinalNetWorth = finalNetWorth + dailyRate * daysRemaining;
+
+  return {
+    daysElapsed,
+    netChangeSoFar,
+    dailyRate,
+    daysRemaining,
+    projectedFinalNetWorth,
+    onTrackToSucceed: projectedFinalNetWorth > startingCapital,
+  };
+}
+
 /** مستوى التمويل المختار — مُشتق من (financingDeadlineDays, investorEquityPercent) المخزَّنين، مو حقل مباشر. */
 export function getFinancingTierKey(decision: FinancingDecision): FinancingTierKey | null {
   const tier = FINANCING_TIERS.find(

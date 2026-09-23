@@ -18,6 +18,7 @@ import {
   computeFinalNetWorth,
   getVerdict,
   getFinancingTierKey,
+  computeFinancialProjection,
   summarizeWholesalePayments,
   sumRevenueByChannel,
   computeTotalCommissionPaid,
@@ -91,6 +92,19 @@ export default function ResultStage({
   const tierKey = getFinancingTierKey(financingDecision);
   const isOverdue = daysConsumed > financingDecision.financingDeadlineDays;
 
+  // تصحيح مهلة السداد السنوية: المهلة لسا ما انتهت (daysConsumed <
+  // financingDeadlineDays) → توقع مستقبلي بس، مو حكم نهائي قاطع. لو
+  // انتهت فعلياً (>=) → نفس الشاشة القديمة بالضبط، حكم نهائي حقيقي.
+  const deadlineReached = daysConsumed >= financingDecision.financingDeadlineDays;
+  const projection = deadlineReached
+    ? null
+    : computeFinancialProjection(
+        finalNetWorth,
+        startingCapital,
+        daysConsumed,
+        financingDecision.financingDeadlineDays
+      );
+
   const rentOption = getRentOption(rentResult.rentId);
   const equipmentOption = getEquipmentOption(equipmentResult.equipmentType);
 
@@ -103,30 +117,76 @@ export default function ResultStage({
 
   return (
     <div className="w-full max-w-md space-y-6 text-right">
-      {/* 1) النتيجة النهائية */}
-      <div className="space-y-2 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
-        <p
-          className={`text-lg font-bold ${
-            verdict === "نجحت"
-              ? "text-emerald-600 dark:text-emerald-400"
-              : "text-red-600 dark:text-red-400"
-          }`}
-        >
-          {verdict === "نجحت" ? t("result.success", language) : t("result.failure", language)}
-        </p>
-        <p className="text-sm">{t("result.startingCapital", language, { amount: startingCapital.toLocaleString("ar") })}</p>
-        <p className="text-sm">
-          {t("result.finalNetWorth", language, { amount: finalNetWorth.toLocaleString("ar") })}
-          {pendingReceivablesTotal > 0 && (
-            <span className="text-xs text-zinc-500">
-              {t("result.pendingNote", language, { amount: pendingReceivablesTotal.toLocaleString("ar") })}
-            </span>
+      {/* 1) النتيجة النهائية — حكم قاطع لو المهلة انتهت، توقع مستقبلي غير ذلك */}
+      {deadlineReached ? (
+        <div className="space-y-2 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+          <p
+            className={`text-lg font-bold ${
+              verdict === "نجحت"
+                ? "text-emerald-600 dark:text-emerald-400"
+                : "text-red-600 dark:text-red-400"
+            }`}
+          >
+            {verdict === "نجحت" ? t("result.success", language) : t("result.failure", language)}
+          </p>
+          <p className="text-sm">{t("result.startingCapital", language, { amount: startingCapital.toLocaleString("ar") })}</p>
+          <p className="text-sm">
+            {t("result.finalNetWorth", language, { amount: finalNetWorth.toLocaleString("ar") })}
+            {pendingReceivablesTotal > 0 && (
+              <span className="text-xs text-zinc-500">
+                {t("result.pendingNote", language, { amount: pendingReceivablesTotal.toLocaleString("ar") })}
+              </span>
+            )}
+          </p>
+          <p className={`text-sm font-medium ${difference >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
+            {difference >= 0 ? t("result.netProfit", language) : t("result.netLoss", language)}: {Math.abs(difference).toLocaleString("ar")} {language === "ar" ? "درهم" : "AED"}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-2 rounded-md border border-zinc-200 p-4 dark:border-zinc-800">
+          <p className="text-sm font-semibold">{t("result.projectionTitle", language)}</p>
+          {projection === null ? (
+            <p className="text-sm text-zinc-500">{t("result.projectionNoData", language)}</p>
+          ) : (
+            <>
+              <p className="text-sm">
+                {t("result.projectionCurrentPosition", language, { amount: finalNetWorth.toLocaleString("ar") })}
+              </p>
+              <p className="text-sm">
+                {t("result.projectionDailyRate", language, {
+                  rate:
+                    (projection.dailyRate >= 0 ? "+" : "") +
+                    Math.round(projection.dailyRate).toLocaleString("ar"),
+                })}
+              </p>
+              <p
+                className={`text-sm font-medium ${
+                  projection.onTrackToSucceed
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                }`}
+              >
+                {t("result.projectionFinal", language, {
+                  days: projection.daysRemaining,
+                  amount: Math.round(projection.projectedFinalNetWorth).toLocaleString("ar"),
+                })}
+              </p>
+              <p
+                className={`text-sm font-bold ${
+                  projection.onTrackToSucceed
+                    ? "text-emerald-600 dark:text-emerald-400"
+                    : "text-red-600 dark:text-red-400"
+                }`}
+              >
+                {projection.onTrackToSucceed
+                  ? t("result.projectionOnTrackSuccess", language)
+                  : t("result.projectionOnTrackFailure", language)}
+              </p>
+              <p className="text-xs text-zinc-400">{t("result.projectionDisclaimer", language)}</p>
+            </>
           )}
-        </p>
-        <p className={`text-sm font-medium ${difference >= 0 ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400"}`}>
-          {difference >= 0 ? t("result.netProfit", language) : t("result.netLoss", language)}: {Math.abs(difference).toLocaleString("ar")} {language === "ar" ? "درهم" : "AED"}
-        </p>
-      </div>
+        </div>
+      )}
 
       {/* دراسة السوق */}
       {marketResearchResults && marketResearchResults.purchased.length > 0 && (

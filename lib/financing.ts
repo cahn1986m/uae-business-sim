@@ -24,7 +24,7 @@ export const FINANCING_TIERS: {
     label: "رأس مال محدود (بنك)",
     min: 80000,
     max: 120000,
-    deadlineDays: 60,
+    deadlineDays: 365,
     investorEquityPercent: 0,
   },
   {
@@ -32,7 +32,7 @@ export const FINANCING_TIERS: {
     label: "رأس مال متوسط (بنك+ملائكة)",
     min: 200000,
     max: 300000,
-    deadlineDays: 40,
+    deadlineDays: 365,
     investorEquityPercent: 10,
   },
   {
@@ -40,7 +40,7 @@ export const FINANCING_TIERS: {
     label: "رأس مال مريح (ملائكة)",
     min: 400000,
     max: 600000,
-    deadlineDays: 25,
+    deadlineDays: 365,
     investorEquityPercent: 25,
   },
 ];

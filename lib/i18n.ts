@@ -536,6 +536,34 @@ const dict: Record<string, Entry> = {
   },
   "result.netProfit": { ar: "ربح صافي", en: "Net profit" },
   "result.netLoss": { ar: "خسارة صافية", en: "Net loss" },
+  // توقع مستقبلي (لو المهلة لسا ما انتهت) — تصحيح مهلة السداد السنوية.
+  // مو حكماً نهائياً، عمداً بصيغة مختلفة عن result.success/failure.
+  "result.projectionTitle": {
+    ar: "لو استمريت بنفس المعدل حتى نهاية المهلة...",
+    en: "If you keep going at the same rate until the deadline...",
+  },
+  "result.projectionNoData": {
+    ar: "لسا ما في بيانات كافية للتوقع (لسا ما استهلكت أي أيام من المهلة).",
+    en: "Not enough data yet for a projection (no days consumed from the deadline so far).",
+  },
+  "result.projectionCurrentPosition": {
+    ar: "وضعك الحالي: {amount} درهم",
+    en: "Your current position: AED {amount}",
+  },
+  "result.projectionDailyRate": {
+    ar: "المعدل اليومي (منذ بداية التمويل): {rate} درهم/يوم",
+    en: "Daily rate (since financing started): AED {rate}/day",
+  },
+  "result.projectionFinal": {
+    ar: "التوقع عند نهاية المهلة ({days} يوم متبقي): {amount} درهم",
+    en: "Projection at the end of the deadline ({days} days left): AED {amount}",
+  },
+  "result.projectionOnTrackSuccess": { ar: "📈 على المسار للنجاح", en: "📈 On track to succeed" },
+  "result.projectionOnTrackFailure": { ar: "📉 على المسار للخسارة", en: "📉 On track to fail" },
+  "result.projectionDisclaimer": {
+    ar: "توقع خطي مبسّط (بافتراض استمرار نفس المعدل) — مو تنبؤاً دقيقاً.",
+    en: "A simplified linear projection (assuming the current rate continues) — not a precise forecast.",
+  },
   "result.marketResearchTitle": { ar: "دراسة السوق", en: "Market Research" },
   "result.notUsedYet": { ar: "لم يُستخدم بعد بمرحلة البيع.", en: "Not used yet in the sales stage." },
   "result.financingTitle": { ar: "التمويل", en: "Financing" },
